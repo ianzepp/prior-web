@@ -1,6 +1,3 @@
-#[cfg(feature = "hydrate")]
-use leptos::prelude::*;
-
 #[cfg(feature = "ssr")]
 use leptos::config::LeptosOptions;
 
@@ -18,6 +15,11 @@ pub fn site_addr(options: &LeptosOptions) -> String {
 #[cfg(feature = "ssr")]
 pub fn gate_ws_meta_content() -> String {
     std::env::var("PRIOR_GATE_WS_URL").unwrap_or_default()
+}
+
+#[cfg(not(feature = "ssr"))]
+pub fn gate_ws_meta_content() -> String {
+    String::new()
 }
 
 #[cfg(feature = "hydrate")]

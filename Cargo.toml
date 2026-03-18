@@ -7,6 +7,11 @@ rust-version = "1.93"
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[[bin]]
+name = "prior-web"
+path = "src/main.rs"
+required-features = ["ssr"]
+
 [features]
 default = ["ssr"]
 hydrate = [
@@ -66,6 +71,10 @@ site-addr = "127.0.0.1:3000"
 reload-port = 3001
 browserquery = "defaults"
 watch = false
+bin-features = ["ssr"]
+bin-default-features = false
+lib-features = ["hydrate"]
+lib-default-features = false
 
 [lints.clippy]
 pedantic = { level = "warn", priority = -1 }
