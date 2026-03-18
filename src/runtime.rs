@@ -2,6 +2,13 @@
 use leptos::config::LeptosOptions;
 
 #[cfg(feature = "ssr")]
+#[derive(Clone, Debug)]
+pub struct PriorGateConfig {
+    pub tcp_addr: String,
+    pub service_token: Option<String>,
+}
+
+#[cfg(feature = "ssr")]
 pub fn site_addr(options: &LeptosOptions) -> String {
     if let Ok(addr) = std::env::var("PRIOR_WEB_SITE_ADDR") {
         return addr;
@@ -13,52 +20,13 @@ pub fn site_addr(options: &LeptosOptions) -> String {
 }
 
 #[cfg(feature = "ssr")]
-pub fn gate_ws_meta_content() -> String {
-    std::env::var("PRIOR_GATE_WS_URL").unwrap_or_default()
-}
-
-#[cfg(not(feature = "ssr"))]
-pub fn gate_ws_meta_content() -> String {
-    String::new()
-}
-
-#[cfg(feature = "hydrate")]
-pub fn gate_ws_url() -> String {
-    if let Some(url) = configured_gate_ws_url() {
-        return url;
+pub fn prior_gate_config() -> PriorGateConfig {
+    PriorGateConfig {
+        tcp_addr: std::env::var("PRIOR_GATE_TCP_ADDR").unwrap_or_else(|_| "127.0.0.1:7070".into()),
+        service_token: std::env::var("PRIOR_GATE_SERVICE_TOKEN").ok().filter(|value| !value.is_empty()),
     }
-    fallback_gate_ws_url()
 }
 
-#[cfg(feature = "hydrate")]
-fn configured_gate_ws_url() -> Option<String> {
-    let window = web_sys::window()?;
-    let document = window.document()?;
-    let meta = document
-        .query_selector("meta[name='prior-gate-ws-url']")
-        .ok()
-        .flatten()?;
-    let content = meta.get_attribute("content")?;
-    if content.is_empty() {
-        return None;
-    }
-    Some(content)
-}
-
-#[cfg(feature = "hydrate")]
-fn fallback_gate_ws_url() -> String {
-    let Some(window) = web_sys::window() else {
-        return "ws://127.0.0.1:7071/".into();
-    };
-    let location = window.location();
-    let protocol = match location.protocol() {
-        Ok(value) if value == "https:" => "wss",
-        Ok(_) => "ws",
-        Err(_) => "ws",
-    };
-    let host = match location.hostname() {
-        Ok(value) if !value.is_empty() => value,
-        _ => "127.0.0.1".into(),
-    };
-    format!("{protocol}://{host}:7071/")
+pub fn prior_web_gate_actor() -> String {
+    std::env::var("PRIOR_WEB_GATE_ACTOR").unwrap_or_else(|_| "prior-web".into())
 }

@@ -1,0 +1,126 @@
+syntax = "proto3";
+
+package prior.gate.v1;
+
+import "google/protobuf/struct.proto";
+
+message ClientEnvelope {
+  oneof body {
+    ClientHello hello = 1;
+    GateRequest request = 2;
+    GateCancel cancel = 3;
+    ClientPing ping = 4;
+  }
+}
+
+message ServerEnvelope {
+  oneof body {
+    ServerHello hello = 1;
+    GateResponse response = 2;
+    GateEvent event = 3;
+    ServerPong pong = 4;
+  }
+}
+
+message ClientHello {
+  string protocol_version = 1;
+  string client_name = 2;
+  map<string, string> metadata = 3;
+  optional string service_token = 4;
+  optional string user_id = 5;
+}
+
+message ServerHello {
+  string protocol_version = 1;
+  string server_name = 2;
+  repeated string capabilities = 3;
+}
+
+message ClientPing {
+  uint64 sequence = 1;
+}
+
+message ServerPong {
+  uint64 sequence = 1;
+}
+
+message GateRequest {
+  string request_id = 1;
+  string syscall = 2;
+  optional string room = 3;
+  optional string from = 4;
+  optional uint64 timeout_ms = 5;
+  google.protobuf.Struct data = 6;
+  optional google.protobuf.Value trace = 7;
+  optional google.protobuf.Struct secrets = 8;
+}
+
+message GateCancel {
+  string request_id = 1;
+  string target_request_id = 2;
+}
+
+message GateResponse {
+  string request_id = 1;
+  ResponseOp op = 2;
+  optional ResponseItem item = 3;
+  optional ErrorBody error = 4;
+  optional DoneBody done = 5;
+  optional BinaryChunk data = 6;
+  optional RedirectBody redirect = 7;
+  optional ProgressBody progress = 8;
+  optional ResponseBulk bulk = 9;
+  optional google.protobuf.Value trace = 10;
+  optional CancelBody cancel = 11;
+}
+
+enum ResponseOp {
+  RESPONSE_OP_UNSPECIFIED = 0;
+  RESPONSE_OP_ITEM = 1;
+  RESPONSE_OP_DONE = 2;
+  RESPONSE_OP_ERROR = 3;
+  RESPONSE_OP_DATA = 4;
+  RESPONSE_OP_REDIRECT = 5;
+  RESPONSE_OP_PROGRESS = 6;
+  RESPONSE_OP_BULK = 7;
+  RESPONSE_OP_CANCEL = 8;
+}
+
+message ResponseItem {
+  google.protobuf.Struct data = 1;
+}
+
+message ResponseBulk {
+  google.protobuf.Struct data = 1;
+}
+
+message DoneBody {}
+
+message CancelBody {}
+
+message ErrorBody {
+  string code = 1;
+  string message = 2;
+  bool retryable = 3;
+}
+
+message BinaryChunk {
+  bytes bytes = 1;
+}
+
+message RedirectBody {
+  string syscall = 1;
+  google.protobuf.Struct data = 2;
+}
+
+message ProgressBody {
+  string stage = 1;
+  string message = 2;
+  optional uint32 percent = 3;
+}
+
+message GateEvent {
+  string event_id = 1;
+  string topic = 2;
+  google.protobuf.Struct data = 3;
+}
