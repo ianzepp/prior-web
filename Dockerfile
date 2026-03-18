@@ -2,7 +2,7 @@ FROM rust:1.93-slim AS builder
 WORKDIR /app
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends pkg-config libssl-dev ca-certificates perl \
+    && apt-get install -y --no-install-recommends build-essential pkg-config libssl-dev ca-certificates perl \
     && rm -rf /var/lib/apt/lists/*
 
 RUN cargo install cargo-leptos --locked
