@@ -31,7 +31,7 @@ async fn run() -> Result<(), String> {
             move || prior_web::app::shell(options.clone())
         })
         .nest_service("/pkg", ServeDir::new(site_root.join("pkg")))
-        .nest_service("/", ServeDir::new(assets).append_index_html_on_directories(true))
+        .fallback_service(ServeDir::new(assets).append_index_html_on_directories(true))
         .with_state(options.clone());
 
     let listener = tokio::net::TcpListener::bind(&site_addr)
