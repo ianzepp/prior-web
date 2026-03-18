@@ -6,13 +6,13 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 RUN cargo install cargo-leptos --locked
-RUN rustup target add wasm32-unknown-unknown
 
 COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
 COPY public ./public
 COPY src ./src
 
-RUN cargo leptos build --release
+RUN rustup target add wasm32-unknown-unknown --toolchain 1.93-x86_64-unknown-linux-gnu \
+    && cargo leptos build --release
 
 FROM debian:bookworm-slim
 WORKDIR /app
