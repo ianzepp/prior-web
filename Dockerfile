@@ -14,7 +14,8 @@ RUN ARCH=$(uname -m) && \
     curl -fsSL "https://github.com/leptos-rs/cargo-leptos/releases/download/v0.3.5/cargo-leptos-${TARGET}.tar.gz" \
     | tar -xz --strip-components=1 -C /usr/local/bin
 
-COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
+COPY Cargo.toml Cargo.lock rust-toolchain.toml build.rs ./
+COPY proto ./proto
 COPY public ./public
 COPY src ./src
 
