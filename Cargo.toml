@@ -1,0 +1,79 @@
+[package]
+name = "prior-web"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.93"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = ["ssr"]
+hydrate = [
+    "leptos/hydrate",
+    "dep:console_error_panic_hook",
+    "dep:console_log",
+    "dep:futures",
+    "dep:gloo-net",
+    "dep:log",
+    "dep:prost",
+    "dep:prost-types",
+    "dep:wasm-bindgen",
+    "dep:wasm-bindgen-futures",
+    "dep:web-sys",
+]
+ssr = [
+    "leptos/ssr",
+    "leptos_meta/ssr",
+    "leptos_router/ssr",
+    "dep:axum",
+    "dep:leptos_axum",
+    "dep:tokio",
+    "dep:tower-http",
+    "dep:tracing",
+    "dep:tracing-subscriber",
+]
+
+[dependencies]
+leptos = "0.8"
+leptos_meta = "0.8"
+leptos_router = "0.8"
+serde = { version = "1", features = ["derive"] }
+
+axum = { version = "0.8", optional = true }
+console_error_panic_hook = { version = "0.1", optional = true }
+console_log = { version = "1", optional = true }
+futures = { version = "0.3", optional = true }
+gloo-net = { version = "0.6", optional = true }
+leptos_axum = { version = "0.8", optional = true }
+log = { version = "0.4", optional = true }
+prost = { version = "0.13", optional = true }
+prost-types = { version = "0.13", optional = true }
+tokio = { version = "1", features = ["full"], optional = true }
+tower-http = { version = "0.6", features = ["fs"], optional = true }
+tracing = { version = "0.1", optional = true }
+tracing-subscriber = { version = "0.3", optional = true }
+wasm-bindgen = { version = "0.2", optional = true }
+wasm-bindgen-futures = { version = "0.4", optional = true }
+web-sys = { version = "0.3", optional = true, features = ["Document", "Element", "Location", "Window"] }
+
+[package.metadata.leptos]
+output-name = "prior-web"
+site-root = "target/prior-web/site"
+site-pkg-dir = "pkg"
+env = "DEV"
+site-addr = "127.0.0.1:3000"
+reload-port = 3001
+browserquery = "defaults"
+watch = false
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+collapsible_if = "allow"
+collapsible_else_if = "allow"
+wildcard_imports = "allow"
+needless_pass_by_value = "allow"
+unnecessary_map_or = "allow"
+unnecessary_result_map_or_else = "allow"
+unnecessary_option_map_or_else = "allow"
+must_use_candidate = "allow"

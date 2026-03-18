@@ -1,0 +1,103 @@
+:root {
+  --ink: #17202a;
+  --paper: #f4efe6;
+  --panel: #fff9ef;
+  --accent: #bf5b2c;
+  --accent-strong: #7e2f14;
+  --muted: #6c6a66;
+  --edge: rgba(23, 32, 42, 0.12);
+  --shadow: 0 24px 80px rgba(23, 32, 42, 0.12);
+  font-family: "Iowan Old Style", "Palatino Linotype", serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  color: var(--ink);
+  background:
+    radial-gradient(circle at top left, rgba(191, 91, 44, 0.14), transparent 30%),
+    linear-gradient(180deg, #fffaf2 0%, var(--paper) 100%);
+}
+
+.dashboard-shell {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 48px 20px 64px;
+}
+
+.hero {
+  padding: 28px;
+  border: 1px solid var(--edge);
+  background: rgba(255, 249, 239, 0.84);
+  box-shadow: var(--shadow);
+}
+
+.eyebrow {
+  margin: 0 0 12px;
+  color: var(--accent-strong);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-size: 0.8rem;
+}
+
+.hero h1 {
+  margin: 0 0 14px;
+  font-size: clamp(2rem, 4vw, 4rem);
+  line-height: 0.95;
+}
+
+.lede {
+  max-width: 52rem;
+  margin: 0;
+  font-size: 1.1rem;
+  color: var(--muted);
+}
+
+.actions {
+  margin-top: 20px;
+}
+
+.primary {
+  border: 0;
+  padding: 12px 18px;
+  background: var(--accent);
+  color: white;
+  font: inherit;
+  cursor: pointer;
+}
+
+.panel-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 18px;
+  margin-top: 22px;
+}
+
+.panel {
+  min-height: 220px;
+  padding: 20px;
+  border: 1px solid var(--edge);
+  background: var(--panel);
+}
+
+.panel h2 {
+  margin-top: 0;
+}
+
+.room-list {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.event-copy {
+  color: var(--muted);
+  white-space: pre-wrap;
+}
