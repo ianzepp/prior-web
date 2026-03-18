@@ -6,6 +6,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 RUN cargo install cargo-leptos --locked
+RUN rustup target add wasm32-unknown-unknown
 
 COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
 COPY public ./public
