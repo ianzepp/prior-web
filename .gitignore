@@ -3,3 +3,4 @@ target/
 .direnv/
 .env
 .env.*
+!.env.example

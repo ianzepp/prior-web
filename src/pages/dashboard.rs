@@ -24,24 +24,37 @@ pub fn DashboardPage() -> impl IntoView {
                 </div>
             </section>
 
-            {move || {
-                let gate = gate.get().map_or_else(
-                    || GateUiState::loading("loading server-side gate snapshot"),
-                    |result| match result {
-                        Ok(state) => state,
-                        Err(error) => GateUiState::disconnected("server function failed", error.to_string()),
-                    },
-                );
-
+            <Suspense fallback=move || {
                 view! {
                     <section class="panel-grid">
-                        <ConnectionPanel gate=gate.clone()/>
-                        <RoomsPanel gate=gate.clone()/>
-                        <EventsPanel gate=gate/>
+                        <ConnectionPanel gate=GateUiState::loading("loading server-side gate snapshot")/>
+                        <RoomsPanel gate=GateUiState::loading("loading server-side gate snapshot")/>
+                        <EventsPanel gate=GateUiState::loading("loading server-side gate snapshot")/>
                     </section>
                 }
                 .into_any()
-            }}
+            }>
+                {move || {
+                    let gate = gate.get().map_or_else(
+                        || GateUiState::loading("loading server-side gate snapshot"),
+                        |result| match result {
+                            Ok(state) => state,
+                            Err(error) => {
+                                GateUiState::disconnected("server function failed", error.to_string())
+                            }
+                        },
+                    );
+
+                    view! {
+                        <section class="panel-grid">
+                            <ConnectionPanel gate=gate.clone()/>
+                            <RoomsPanel gate=gate.clone()/>
+                            <EventsPanel gate=gate/>
+                        </section>
+                    }
+                    .into_any()
+                }}
+            </Suspense>
         </main>
     }
 }

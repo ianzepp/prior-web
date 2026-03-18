@@ -18,10 +18,10 @@ pub async fn refresh_dashboard() -> Result<GateUiState, ServerFnError> {
 mod ssr {
     use std::collections::HashMap;
 
+    use futures_util::{SinkExt, StreamExt};
     use prost::Message;
     use prost_types::{Struct, Value, value::Kind};
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    use tokio::net::TcpStream;
+    use tokio_tungstenite::{connect_async, tungstenite::Message as WsMessage};
 
     use crate::net::prior_gate_proto::{
         ClientEnvelope, ClientHello, GateRequest, ResponseItem, ResponseOp, ServerEnvelope, ServerHello,
@@ -37,7 +37,7 @@ mod ssr {
             Ok(state) => state,
             Err(error) => GateUiState {
                 connection: ConnectionStatus::Disconnected,
-                gate_url: config.tcp_addr,
+                gate_url: config.ws_url,
                 server_name: None,
                 status: format!("server-side gate refresh failed: {error}"),
                 rooms: Vec::new(),
@@ -49,7 +49,7 @@ mod ssr {
     async fn load_snapshot() -> Result<GateUiState, String> {
         let config = prior_gate_config();
         let actor = prior_web_gate_actor();
-        let mut client = PriorGateClient::connect(&config.tcp_addr).await?;
+        let mut client = PriorGateClient::connect(&config.ws_url).await?;
         let hello = client
             .hello(config.service_token.clone(), actor.clone())
             .await?;
@@ -63,7 +63,7 @@ mod ssr {
 
         Ok(GateUiState {
             connection: ConnectionStatus::Connected,
-            gate_url: config.tcp_addr,
+            gate_url: config.ws_url,
             server_name: Some(hello.server_name),
             status: format!("server-owned gate round trip ok for actor {actor}"),
             rooms,
@@ -72,16 +72,16 @@ mod ssr {
     }
 
     struct PriorGateClient {
-        stream: TcpStream,
+        socket: tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>,
         next_request_id: u64,
     }
 
     impl PriorGateClient {
-        async fn connect(addr: &str) -> Result<Self, String> {
-            let stream = TcpStream::connect(addr)
+        async fn connect(url: &str) -> Result<Self, String> {
+            let (socket, _) = connect_async(url)
                 .await
-                .map_err(|error| format!("connect {addr}: {error}"))?;
-            Ok(Self { stream, next_request_id: 1 })
+                .map_err(|error| format!("connect {url}: {error}"))?;
+            Ok(Self { socket, next_request_id: 1 })
         }
 
         async fn hello(
@@ -219,37 +219,38 @@ mod ssr {
             envelope
                 .encode(&mut bytes)
                 .map_err(|error| format!("encode envelope: {error}"))?;
-            let length = u32::try_from(bytes.len()).map_err(|_| "envelope too large".to_string())?;
-
-            self.stream
-                .write_u32(length)
+            self.socket
+                .send(WsMessage::Binary(bytes.into()))
                 .await
-                .map_err(|error| format!("write envelope length: {error}"))?;
-            self.stream
-                .write_all(&bytes)
-                .await
-                .map_err(|error| format!("write envelope payload: {error}"))?;
-            self.stream
-                .flush()
-                .await
-                .map_err(|error| format!("flush envelope: {error}"))?;
-            Ok(())
+                .map_err(|error| format!("write envelope payload: {error}"))
         }
 
         async fn read(&mut self) -> Result<ServerEnvelope, String> {
-            let length = self
-                .stream
-                .read_u32()
-                .await
-                .map_err(|error| format!("read envelope length: {error}"))?;
-            let frame_len = usize::try_from(length).map_err(|_| "invalid frame length".to_string())?;
-            let mut bytes = vec![0; frame_len];
-            self.stream
-                .read_exact(&mut bytes)
-                .await
-                .map_err(|error| format!("read envelope payload: {error}"))?;
+            loop {
+                let message = self
+                    .socket
+                    .next()
+                    .await
+                    .ok_or_else(|| "read envelope payload: websocket closed".to_string())?
+                    .map_err(|error| format!("read envelope payload: {error}"))?;
 
-            ServerEnvelope::decode(bytes.as_slice()).map_err(|error| format!("decode envelope: {error}"))
+                match message {
+                    WsMessage::Binary(bytes) => {
+                        return ServerEnvelope::decode(bytes.as_ref())
+                            .map_err(|error| format!("decode envelope: {error}"));
+                    }
+                    WsMessage::Ping(payload) => {
+                        self.socket
+                            .send(WsMessage::Pong(payload))
+                            .await
+                            .map_err(|error| format!("write pong: {error}"))?;
+                    }
+                    WsMessage::Close(_) => return Err("read envelope payload: websocket closed".into()),
+                    WsMessage::Pong(_) => {}
+                    WsMessage::Text(_) => {}
+                    WsMessage::Frame(_) => {}
+                }
+            }
         }
     }
 
