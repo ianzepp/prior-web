@@ -2,33 +2,14 @@ use leptos::prelude::*;
 use leptos::tachys::view::any_view::AnyView;
 use leptos::tachys::view::any_view::IntoAny;
 
+use crate::auth::user::current_auth_state;
 use crate::net::prior_gate::refresh_dashboard;
 use crate::state::auth::AuthState;
 use crate::state::gate::{ConnectionStatus, GateUiState};
 
 #[component]
 pub fn DashboardPage() -> AnyView {
-    let auth = use_context::<AuthState>().unwrap_or(AuthState::Anonymous);
-    let current_user = match auth {
-        AuthState::Authenticated(user) => user,
-        AuthState::Anonymous => {
-            return view! {
-                <main class="dashboard-shell">
-                    <section class="hero">
-                        <p class="eyebrow">"Prior Web"</p>
-                        <h1>"Authentication required"</h1>
-                        <p class="lede">
-                            "prior-web does not run server-owned gate work for anonymous users. Log in first, then return to the authenticated application shell."
-                        </p>
-                        <div class="actions">
-                            <a class="primary" href="/auth/login?return_to=/app">"Log in"</a>
-                        </div>
-                    </section>
-                </main>
-            }
-            .into_any();
-        }
-    };
+    let auth = Resource::new(|| (), |_| current_auth_state());
 
     let (refresh_tick, set_refresh_tick) = signal(0_u64);
     let gate = Resource::new(move || refresh_tick.get(), |_| refresh_dashboard());
@@ -36,51 +17,111 @@ pub fn DashboardPage() -> AnyView {
     let on_refresh = move |_| set_refresh_tick.update(|count| *count += 1);
 
     view! {
+        <Suspense fallback=move || {
+            view! {
+                <main class="dashboard-shell">
+                    <section class="hero">
+                        <p class="eyebrow">"Prior Web"</p>
+                        <h1>"Loading session"</h1>
+                        <p class="lede">"Confirming the authenticated web session."</p>
+                    </section>
+                </main>
+            }
+            .into_any()
+        }>
+            {move || match auth.get() {
+                None => view! {
+                    <main class="dashboard-shell">
+                        <section class="hero">
+                            <p class="eyebrow">"Prior Web"</p>
+                            <h1>"Loading session"</h1>
+                            <p class="lede">"Confirming the authenticated web session."</p>
+                        </section>
+                    </main>
+                }
+                .into_any(),
+                Some(Ok(AuthState::Authenticated(current_user))) => view! {
+                    <main class="dashboard-shell">
+                        <section class="hero">
+                            <p class="eyebrow">"Prior Web"</p>
+                            <h1>"Remote operator surface over gate"</h1>
+                            <p class="lede">
+                                "This surface now treats Prior as a server-side integration boundary. The browser talks to prior-web, and prior-web performs the gate round trip."
+                            </p>
+                            <p class="lede">{format!("Authenticated as {}", current_user.label())}</p>
+                            <div class="actions">
+                                <button class="primary" on:click=on_refresh>"Refresh"</button>
+                                <a href="/auth/logout">"Log out"</a>
+                            </div>
+                        </section>
+
+                        <Suspense fallback=move || {
+                            view! {
+                                <section class="panel-grid">
+                                    <ConnectionPanel gate=GateUiState::loading("loading server-side gate snapshot")/>
+                                    <RoomsPanel gate=GateUiState::loading("loading server-side gate snapshot")/>
+                                    <EventsPanel gate=GateUiState::loading("loading server-side gate snapshot")/>
+                                </section>
+                            }
+                            .into_any()
+                        }>
+                            {move || {
+                                let gate = gate.get().map_or_else(
+                                    || GateUiState::loading("loading server-side gate snapshot"),
+                                    |result| match result {
+                                        Ok(state) => state,
+                                        Err(error) => {
+                                            GateUiState::disconnected("server function failed", error.to_string())
+                                        }
+                                    },
+                                );
+
+                                view! {
+                                    <section class="panel-grid">
+                                        <ConnectionPanel gate=gate.clone()/>
+                                        <RoomsPanel gate=gate.clone()/>
+                                        <EventsPanel gate=gate/>
+                                    </section>
+                                }
+                                .into_any()
+                            }}
+                        </Suspense>
+                    </main>
+                }
+                .into_any(),
+                Some(Ok(AuthState::Anonymous)) => unauthenticated_dashboard(),
+                Some(Err(error)) => view! {
+                    <main class="dashboard-shell">
+                        <section class="hero">
+                            <p class="eyebrow">"Prior Web"</p>
+                            <h1>"Session lookup failed"</h1>
+                            <p class="lede">{error.to_string()}</p>
+                            <div class="actions">
+                                <a class="primary" href="/auth/login?return_to=/app">"Log in"</a>
+                            </div>
+                        </section>
+                    </main>
+                }
+                .into_any(),
+            }}
+        </Suspense>
+    }
+    .into_any()
+}
+
+fn unauthenticated_dashboard() -> AnyView {
+    view! {
         <main class="dashboard-shell">
             <section class="hero">
                 <p class="eyebrow">"Prior Web"</p>
-                <h1>"Remote operator surface over gate"</h1>
+                <h1>"Authentication required"</h1>
                 <p class="lede">
-                    "This surface now treats Prior as a server-side integration boundary. The browser talks to prior-web, and prior-web performs the gate round trip."
+                    "prior-web does not run server-owned gate work for anonymous users. Log in first, then return to the authenticated application shell."
                 </p>
-                <p class="lede">{format!("Authenticated as {}", current_user.label())}</p>
                 <div class="actions">
-                    <button class="primary" on:click=on_refresh>"Refresh"</button>
-                    <a href="/auth/logout">"Log out"</a>
+                    <a class="primary" href="/auth/login?return_to=/app">"Log in"</a>
                 </div>
             </section>
-
-            <Suspense fallback=move || {
-                view! {
-                    <section class="panel-grid">
-                        <ConnectionPanel gate=GateUiState::loading("loading server-side gate snapshot")/>
-                        <RoomsPanel gate=GateUiState::loading("loading server-side gate snapshot")/>
-                        <EventsPanel gate=GateUiState::loading("loading server-side gate snapshot")/>
-                    </section>
-                }
-                .into_any()
-            }>
-                {move || {
-                    let gate = gate.get().map_or_else(
-                        || GateUiState::loading("loading server-side gate snapshot"),
-                        |result| match result {
-                            Ok(state) => state,
-                            Err(error) => {
-                                GateUiState::disconnected("server function failed", error.to_string())
-                            }
-                        },
-                    );
-
-                    view! {
-                        <section class="panel-grid">
-                            <ConnectionPanel gate=gate.clone()/>
-                            <RoomsPanel gate=gate.clone()/>
-                            <EventsPanel gate=gate/>
-                        </section>
-                    }
-                    .into_any()
-                }}
-            </Suspense>
         </main>
     }
     .into_any()

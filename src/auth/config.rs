@@ -47,7 +47,7 @@ impl AuthConfig {
     }
 
     fn issuer_url(&self) -> Result<IssuerUrl, String> {
-        IssuerUrl::new(format!("https://{}", self.domain))
+        IssuerUrl::new(format!("https://{}/", self.domain.trim_end_matches('/')))
             .map_err(|error| format!("invalid AUTH0_DOMAIN issuer URL: {error}"))
     }
 }

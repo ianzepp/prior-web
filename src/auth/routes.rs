@@ -1,15 +1,15 @@
 #![cfg(feature = "ssr")]
 
 use axum::extract::{Query, State};
-use axum::http::StatusCode;
 use axum::response::{IntoResponse, Redirect, Response};
 use axum_extra::extract::cookie::PrivateCookieJar;
 use openidconnect::core::{
     CoreAuthenticationFlow, CoreClient, CoreIdToken, CoreIdTokenClaims, CoreTokenResponse,
 };
 use openidconnect::{
-    AccessTokenHash, AuthorizationCode, ClientId, ClientSecret, CsrfToken, Nonce,
-    OAuth2TokenResponse, PkceCodeChallenge, PkceCodeVerifier, Scope, TokenResponse,
+    AccessTokenHash, AuthType, AuthorizationCode, ClientId, ClientSecret, CsrfToken, Nonce,
+    OAuth2TokenResponse, PkceCodeChallenge, PkceCodeVerifier, RequestTokenError, Scope,
+    TokenResponse,
 };
 use serde::Deserialize;
 
@@ -99,7 +99,8 @@ pub async fn callback(
 
     if let Some(error) = query.error {
         let description = query.error_description.unwrap_or_default();
-        return auth_redirect_failure(&format!("Auth0 callback error: {error} {description}"));
+        tracing::warn!(%error, %description, "Auth0 callback returned an OAuth error");
+        return Redirect::to(&auth_denied_redirect_url(&error)).into_response();
     }
 
     let Some(flow_cookie_value) = jar.get(FLOW_COOKIE_NAME) else {
@@ -136,6 +137,14 @@ pub async fn callback(
     {
         Ok(response) => response,
         Err(error) => {
+            if let RequestTokenError::Parse(parse_error, body) = &error {
+                tracing::error!(
+                    parse_path = %parse_error.path(),
+                    parse_error = %parse_error,
+                    body = %String::from_utf8_lossy(body),
+                    "Auth0 token endpoint returned an unparsable response body",
+                );
+            }
             return auth_redirect_failure(&format!("exchange authorization code: {error}"));
         }
     };
@@ -211,7 +220,7 @@ pub async fn logout(State(state): State<AppState>, jar: PrivateCookieJar) -> Res
 
 fn auth_redirect_failure(message: &str) -> Response {
     tracing::error!(%message, "auth flow failed");
-    (StatusCode::INTERNAL_SERVER_ERROR, message.to_string()).into_response()
+    Redirect::to(&auth_denied_redirect_url("login_failed")).into_response()
 }
 
 fn build_oidc_client(
@@ -232,6 +241,7 @@ fn build_oidc_client(
         ClientId::new(auth.config.client_id.clone()),
         Some(ClientSecret::new(auth.config.client_secret.clone())),
     )
+    .set_auth_type(AuthType::RequestBody)
     .set_redirect_uri(
         openidconnect::RedirectUrl::new(auth.config.callback_url.clone())
             .map_err(|error| format!("invalid AUTH0_CALLBACK_URL: {error}"))?,
@@ -243,4 +253,8 @@ fn sanitize_return_to(value: Option<&str>) -> &str {
         Some(path) if path.starts_with('/') && !path.starts_with("//") => path,
         _ => "/app",
     }
+}
+
+fn auth_denied_redirect_url(reason: &str) -> String {
+    format!("/auth/denied?reason={}", urlencoding::encode(reason))
 }

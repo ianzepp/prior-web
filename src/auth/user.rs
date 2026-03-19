@@ -3,6 +3,7 @@
 use axum::http::request::Parts;
 use axum_extra::extract::cookie::PrivateCookieJar;
 use leptos::prelude::{expect_context, use_context};
+use leptos::server_fn::error::ServerFnError;
 
 use crate::auth::session::{SESSION_COOKIE_NAME, SessionCookie};
 use crate::runtime::AppState;
@@ -33,4 +34,21 @@ pub fn require_current_user() -> Result<CurrentUser, String> {
         .ok_or_else(|| "missing request parts in server context".to_string())?;
 
     current_user_from_parts(&parts, &state).ok_or_else(|| "authentication required".to_string())
+}
+
+#[leptos::server]
+pub async fn current_auth_state() -> Result<AuthState, ServerFnError> {
+    #[cfg(feature = "ssr")]
+    {
+        let state = expect_context::<AppState>();
+        let parts = use_context::<Parts>()
+            .ok_or_else(|| ServerFnError::new("missing request parts in server context"))?;
+
+        return Ok(auth_state_from_parts(&parts, &state));
+    }
+
+    #[allow(unreachable_code)]
+    Err(ServerFnError::new(
+        "current_auth_state is only available on the server",
+    ))
 }

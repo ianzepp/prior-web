@@ -5,6 +5,7 @@ use leptos_meta::{MetaTags, Stylesheet, Title, provide_meta_context};
 use leptos_router::components::{Route, Router, Routes};
 use leptos_router::{StaticSegment, path};
 
+use crate::pages::auth_denied::AuthDeniedPage;
 use crate::pages::dashboard::DashboardPage;
 use crate::pages::home::HomePage;
 use crate::state::auth::AuthState;
@@ -39,6 +40,7 @@ pub fn App() -> impl IntoView {
             <Routes fallback=|| view! { <p>"Not found"</p> }.into_view()>
                 <Route path=StaticSegment("") view=HomePage/>
                 <Route path=path!("app") view=DashboardPage/>
+                <Route path=path!("auth/denied") view=AuthDeniedPage/>
             </Routes>
         </Router>
     }
