@@ -4,5 +4,4 @@ pub mod config;
 pub mod routes;
 #[cfg(feature = "ssr")]
 pub mod session;
-#[cfg(feature = "ssr")]
 pub mod user;

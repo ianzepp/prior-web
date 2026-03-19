@@ -1,0 +1,1482 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Prior — Gmail-style Mockup</title>
+  <style>
+    /* ── Reset & Base ─────────────────────────────────────── */
+    :root {
+      --bg: #f0f4f8;
+      --panel: #ffffff;
+      --panel-hover: #f7fafc;
+      --panel-selected: #e8f0fe;
+      --panel-active: #d3e3fd;
+
+      --border: #dadce0;
+      --border-light: #e8eaed;
+
+      --text: #1f2937;
+      --text-secondary: #5f6368;
+      --text-muted: #9aa0a6;
+
+      --accent: #137cbd;
+      --accent-hover: #106ba3;
+      --accent-soft: #e1f0fa;
+      --accent-text: #0e5a8a;
+
+      --ok: #0d8050;
+      --ok-bg: #e6f7ee;
+      --warn: #bf7326;
+      --warn-bg: #fef3e2;
+      --err: #c23030;
+      --err-bg: #fce8e8;
+      --info: #137cbd;
+      --info-bg: #e1f0fa;
+
+      --shadow-sm: 0 1px 2px rgba(0,0,0,0.06), 0 1px 3px rgba(0,0,0,0.1);
+      --shadow-md: 0 1px 3px rgba(0,0,0,0.08), 0 4px 6px rgba(0,0,0,0.05);
+
+      --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      --font-mono: "IBM Plex Mono", "SF Mono", "Fira Code", "Fira Mono", Menlo, monospace;
+      --radius: 8px;
+      --radius-sm: 4px;
+      --radius-lg: 16px;
+      --radius-pill: 999px;
+    }
+
+    /* ── Dark Mode ──────────────────────────────────────── */
+    [data-theme="dark"] {
+      --bg: #1a1d24;
+      --panel: #22262e;
+      --panel-hover: #2a2f38;
+      --panel-selected: #1e3a5f;
+      --panel-active: #1a3352;
+
+      --border: #33383f;
+      --border-light: #2c3038;
+
+      --text: #e2e8f0;
+      --text-secondary: #94a3b8;
+      --text-muted: #64748b;
+
+      --accent: #3b9ede;
+      --accent-hover: #2b8fd0;
+      --accent-soft: rgba(59, 158, 222, 0.12);
+      --accent-text: #7cc4f5;
+
+      --ok: #34d399;
+      --ok-bg: rgba(52, 211, 153, 0.1);
+      --warn: #fbbf24;
+      --warn-bg: rgba(251, 191, 36, 0.1);
+      --err: #f87171;
+      --err-bg: rgba(248, 113, 113, 0.1);
+      --info: #3b9ede;
+      --info-bg: rgba(59, 158, 222, 0.12);
+
+      --shadow-sm: 0 1px 2px rgba(0,0,0,0.2), 0 1px 3px rgba(0,0,0,0.3);
+      --shadow-md: 0 1px 3px rgba(0,0,0,0.3), 0 4px 6px rgba(0,0,0,0.2);
+    }
+
+    [data-theme="dark"] .search-bar { background: #2a2f38; }
+    [data-theme="dark"] .search-bar:focus-within { background: #33383f; }
+    [data-theme="dark"] .message-body { color: var(--text-secondary); }
+    [data-theme="dark"] .message-body code { background: #2a2f38; color: var(--accent-text); }
+    [data-theme="dark"] .message-body .artifact-card { background: #1a1d24; border-color: var(--border); }
+    [data-theme="dark"] .run-card { background: #1a1d24; }
+    [data-theme="dark"] .compose-btn { background: rgba(59, 158, 222, 0.15); color: var(--accent-text); }
+    [data-theme="dark"] .compose-btn:hover { background: rgba(59, 158, 222, 0.22); }
+    [data-theme="dark"] .brand-mark { background: linear-gradient(135deg, #3b9ede 0%, #2b7fb8 100%); }
+    [data-theme="dark"] .run-card-issues-bar { background: #33383f; }
+    [data-theme="dark"] .lifecycle-progress-seg { background: #33383f; }
+    [data-theme="dark"] .phase-icon.pending { background: #2a2f38; }
+    [data-theme="dark"] .phase-icon.done { background: rgba(52, 211, 153, 0.12); }
+    [data-theme="dark"] .phase-icon.active { background: rgba(59, 158, 222, 0.15); }
+    [data-theme="dark"] .room-star.starred { color: #fbbf24; }
+    [data-theme="dark"] .chat-input { background: #2a2f38; color: var(--text); border-color: var(--border); }
+    [data-theme="dark"] .chat-input:focus { border-color: var(--accent); }
+
+    .theme-toggle {
+      width: 40px;
+      height: 40px;
+      border-radius: var(--radius-pill);
+      border: none;
+      background: transparent;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-secondary);
+      font-size: 18px;
+      transition: background 0.1s;
+    }
+    .theme-toggle:hover { background: var(--panel-hover); }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      overflow: hidden;
+      font-size: 14px;
+      line-height: 1.4;
+    }
+
+    /* ── App Shell ────────────────────────────────────────── */
+    .app {
+      height: 100vh;
+      display: grid;
+      grid-template-rows: 64px 1fr;
+    }
+
+    /* ── Topbar ───────────────────────────────────────────── */
+    .topbar {
+      background: var(--panel);
+      border-bottom: 1px solid var(--border-light);
+      display: grid;
+      grid-template-columns: 256px 1fr auto;
+      align-items: center;
+      padding: 0 16px;
+      gap: 16px;
+    }
+
+    .topbar-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .hamburger {
+      width: 40px; height: 40px;
+      border-radius: var(--radius-pill);
+      border: none; background: transparent;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      color: var(--text-secondary); font-size: 20px;
+    }
+    .hamburger:hover { background: var(--panel-hover); }
+
+    .brand {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 22px; font-weight: 500;
+      color: var(--text); letter-spacing: -0.01em;
+    }
+
+    .brand-mark {
+      width: 32px; height: 32px;
+      border-radius: var(--radius);
+      background: linear-gradient(135deg, #137cbd 0%, #0e5a8a 100%);
+      display: flex; align-items: center; justify-content: center;
+      color: white; font-weight: 700; font-size: 16px;
+      font-family: var(--font-mono);
+    }
+
+    .search-bar {
+      max-width: 720px; width: 100%; height: 48px;
+      background: #edf2f7;
+      border: 1px solid transparent;
+      border-radius: var(--radius-lg);
+      padding: 0 20px;
+      display: flex; align-items: center; gap: 12px;
+      color: var(--text-secondary); font-size: 16px;
+      transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
+    }
+    .search-bar:focus-within {
+      background: var(--panel);
+      border-color: var(--border);
+      box-shadow: var(--shadow-md);
+    }
+
+    .search-icon { font-size: 20px; color: var(--text-secondary); flex-shrink: 0; }
+
+    .topbar-right {
+      display: flex; align-items: center; gap: 8px;
+    }
+
+    .icon-btn {
+      width: 40px; height: 40px;
+      border-radius: var(--radius-pill);
+      border: none; background: transparent;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      color: var(--text-secondary); font-size: 18px;
+    }
+    .icon-btn:hover { background: var(--panel-hover); }
+
+    .avatar {
+      width: 32px; height: 32px;
+      border-radius: var(--radius-pill);
+      background: var(--accent); color: white;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px; font-weight: 600; cursor: pointer;
+    }
+
+    /* ── Main Layout ──────────────────────────────────────── */
+    .layout {
+      display: grid;
+      grid-template-columns: 256px 1fr 320px;
+      min-height: 0;
+      padding: 0 8px 8px 0;
+    }
+
+    /* ── Left Sidebar ─────────────────────────────────────── */
+    .sidebar {
+      padding: 8px 12px;
+      overflow-y: auto;
+      min-height: 0;
+    }
+
+    .compose-btn {
+      display: flex; align-items: center; gap: 10px;
+      height: 56px; padding: 0 24px;
+      border: none; border-radius: var(--radius-lg);
+      background: var(--accent-soft); color: var(--accent-text);
+      font-size: 14px; font-weight: 500; letter-spacing: 0.01em;
+      cursor: pointer;
+      box-shadow: var(--shadow-sm);
+      transition: box-shadow 0.15s, background 0.15s;
+      margin-bottom: 12px; width: fit-content;
+    }
+    .compose-btn:hover { box-shadow: var(--shadow-md); background: #d0e8f7; }
+    .compose-icon { font-size: 20px; }
+
+    .sidebar-section { margin-bottom: 4px; }
+
+    .sidebar-section-label {
+      font-size: 11px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.06em;
+      color: var(--text-muted);
+      padding: 16px 12px 6px;
+    }
+
+    .sidebar-item {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 12px; height: 32px;
+      border-radius: var(--radius-pill);
+      font-size: 14px; color: var(--text);
+      cursor: pointer; transition: background 0.1s; user-select: none;
+    }
+    .sidebar-item:hover { background: var(--panel-hover); }
+    .sidebar-item.active { background: var(--panel-active); color: var(--accent-text); font-weight: 600; }
+
+    .sidebar-item-left {
+      display: flex; align-items: center; gap: 10px; min-width: 0;
+    }
+
+    .sidebar-item-icon {
+      font-size: 18px; flex-shrink: 0; width: 20px;
+      text-align: center; color: var(--text-secondary);
+    }
+    .sidebar-item.active .sidebar-item-icon { color: var(--accent-text); }
+
+    .sidebar-item-label {
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+
+    .sidebar-count {
+      font-size: 12px; font-weight: 500; color: var(--text-secondary); flex-shrink: 0;
+    }
+    .sidebar-item.active .sidebar-count { color: var(--accent-text); }
+
+    /* Nested sub-items (rooms under repos) */
+    .sidebar-sub-item {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 12px 0 40px; height: 28px;
+      border-radius: var(--radius-pill);
+      font-size: 13px; color: var(--text-secondary);
+      cursor: pointer; transition: background 0.1s; user-select: none;
+    }
+    .sidebar-sub-item:hover { background: var(--panel-hover); }
+    .sidebar-sub-item.active { background: var(--panel-active); color: var(--accent-text); font-weight: 600; }
+
+    .sidebar-sub-label {
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+
+    .sidebar-divider {
+      height: 1px; background: var(--border-light); margin: 8px 12px;
+    }
+
+    /* ── Center Content ───────────────────────────────────── */
+    .center {
+      min-height: 0;
+      background: var(--panel);
+      border-radius: var(--radius-lg) 0 0 var(--radius-lg);
+      box-shadow: var(--shadow-sm);
+      overflow: hidden;
+    }
+
+    /* Inbox mode: room list + reading pane side by side */
+    .center.inbox-mode {
+      display: grid;
+      grid-template-columns: 380px 1fr;
+    }
+
+    /* Conversation mode: full width chat */
+    .center.conversation-mode {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .center.conversation-mode .room-list-pane { display: none; }
+    .center.conversation-mode .reading-pane { display: none; }
+
+    /* ── Room List (Message List) ─────────────────────────── */
+    .room-list-pane {
+      border-right: 1px solid var(--border-light);
+      display: flex; flex-direction: column; min-height: 0;
+    }
+
+    .room-list-toolbar {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 8px 12px; height: 48px;
+      border-bottom: 1px solid var(--border-light); flex-shrink: 0;
+    }
+
+    .room-list-toolbar-left {
+      display: flex; align-items: center; gap: 4px;
+    }
+
+    .toolbar-btn {
+      height: 32px; padding: 0 8px;
+      border: none; border-radius: var(--radius-sm);
+      background: transparent; color: var(--text-secondary);
+      font-size: 12px; cursor: pointer;
+      display: flex; align-items: center; gap: 4px;
+    }
+    .toolbar-btn:hover { background: var(--panel-hover); }
+
+    .room-list-info { font-size: 12px; color: var(--text-muted); }
+
+    .room-list { flex: 1; overflow-y: auto; padding: 2px 0; }
+
+    .room-row {
+      display: grid;
+      grid-template-columns: 36px 1fr auto;
+      align-items: start;
+      padding: 10px 16px 10px 8px; gap: 0 8px;
+      cursor: pointer;
+      border-bottom: 1px solid var(--border-light);
+      transition: background 0.08s;
+      min-height: 64px;
+    }
+    .room-row:hover { background: var(--panel-hover); }
+
+    .room-row.selected {
+      background: var(--panel-selected);
+      border-left: 3px solid var(--accent);
+      padding-left: 5px;
+    }
+
+    .room-row.unread .room-sender { font-weight: 700; color: var(--text); }
+    .room-row.unread .room-subject { font-weight: 600; color: var(--text); }
+
+    .room-row-check {
+      display: flex; flex-direction: column; align-items: center;
+      gap: 4px; padding-top: 2px;
+    }
+
+    .room-row-check input[type="checkbox"] {
+      width: 18px; height: 18px; accent-color: var(--accent); cursor: pointer;
+    }
+
+    .room-star { font-size: 16px; color: var(--text-muted); cursor: pointer; line-height: 1; }
+    .room-star.starred { color: #f4b400; }
+
+    .room-content {
+      min-width: 0; display: flex; flex-direction: column; gap: 2px;
+    }
+
+    .room-sender {
+      font-size: 14px; color: var(--text-secondary);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+
+    .room-subject {
+      font-size: 13px; color: var(--text);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+
+    .room-snippet {
+      font-size: 12px; color: var(--text-muted);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+
+    .room-meta {
+      display: flex; flex-direction: column; align-items: flex-end;
+      gap: 4px; flex-shrink: 0; padding-top: 2px;
+    }
+
+    .room-date { font-size: 12px; color: var(--text-muted); white-space: nowrap; }
+    .room-row.unread .room-date { color: var(--accent-text); font-weight: 600; }
+
+    .room-tag {
+      font-size: 10px; font-weight: 500;
+      padding: 1px 6px; border-radius: var(--radius-sm); white-space: nowrap;
+    }
+    .room-tag.ok { color: var(--ok); background: var(--ok-bg); }
+    .room-tag.warn { color: var(--warn); background: var(--warn-bg); }
+    .room-tag.err { color: var(--err); background: var(--err-bg); }
+    .room-tag.info { color: var(--info); background: var(--info-bg); }
+
+    /* ── Reading Pane (Thread View) ───────────────────────── */
+    .reading-pane {
+      display: flex; flex-direction: column; min-height: 0; overflow-y: auto;
+    }
+
+    .thread-header {
+      padding: 20px 24px 16px;
+      border-bottom: 1px solid var(--border-light); flex-shrink: 0;
+    }
+
+    .thread-title {
+      font-size: 22px; font-weight: 400; color: var(--text);
+      line-height: 1.3; margin-bottom: 8px;
+    }
+
+    .thread-meta {
+      display: flex; gap: 12px; flex-wrap: wrap;
+      font-size: 12px; color: var(--text-muted);
+    }
+
+    .thread-meta-tag {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 2px 8px; border-radius: var(--radius-sm);
+      font-size: 11px; font-weight: 500;
+    }
+    .thread-meta-tag.info { color: var(--info); background: var(--info-bg); }
+
+    .thread-actions {
+      display: flex; gap: 4px;
+      padding: 8px 24px;
+      border-bottom: 1px solid var(--border-light); flex-shrink: 0;
+    }
+
+    .thread-messages {
+      flex: 1; overflow-y: auto;
+      padding: 8px 24px 24px;
+      display: flex; flex-direction: column; gap: 4px;
+    }
+
+    /* ── Conversation Mode (Full-width chat) ──────────────── */
+    .conversation-view {
+      display: none;
+      flex-direction: column;
+      min-height: 0;
+      flex: 1;
+    }
+
+    .center.conversation-mode .conversation-view {
+      display: flex;
+    }
+
+    .conversation-topbar {
+      display: flex; align-items: center; gap: 12px;
+      padding: 12px 20px;
+      border-bottom: 1px solid var(--border-light);
+      flex-shrink: 0;
+    }
+
+    .back-btn {
+      width: 36px; height: 36px;
+      border-radius: var(--radius-pill);
+      border: none; background: transparent;
+      cursor: pointer; font-size: 20px;
+      color: var(--text-secondary);
+      display: flex; align-items: center; justify-content: center;
+    }
+    .back-btn:hover { background: var(--panel-hover); }
+
+    .conversation-room-name {
+      font-size: 16px; font-weight: 600; color: var(--text);
+    }
+
+    .conversation-room-context {
+      font-size: 12px; color: var(--text-muted);
+    }
+
+    .conversation-room-info {
+      display: flex; flex-direction: column; gap: 1px; flex: 1;
+    }
+
+    .conversation-participants {
+      display: flex; align-items: center; gap: 6px;
+      margin-left: auto;
+    }
+
+    .participant-dot {
+      width: 8px; height: 8px; border-radius: var(--radius-pill);
+    }
+
+    .participant-label {
+      font-size: 12px; color: var(--text-muted);
+    }
+
+    .conversation-messages {
+      flex: 1; overflow-y: auto;
+      padding: 16px 48px;
+      display: flex; flex-direction: column; gap: 12px;
+      max-width: 960px;
+      margin: 0 auto;
+      width: 100%;
+    }
+
+    .conversation-input-area {
+      border-top: 1px solid var(--border-light);
+      padding: 16px 48px;
+      flex-shrink: 0;
+      display: flex;
+      justify-content: center;
+    }
+
+    .conversation-input-wrap {
+      max-width: 960px;
+      width: 100%;
+      display: flex; flex-direction: column; gap: 8px;
+    }
+
+    .chat-input {
+      width: 100%;
+      min-height: 80px;
+      padding: 12px 16px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      font-family: var(--font);
+      font-size: 14px;
+      color: var(--text);
+      background: var(--panel);
+      resize: vertical;
+      line-height: 1.5;
+    }
+    .chat-input:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px var(--accent-soft);
+    }
+    .chat-input::placeholder { color: var(--text-muted); }
+
+    .conversation-input-actions {
+      display: flex; align-items: center; justify-content: space-between;
+    }
+
+    .conversation-input-left {
+      display: flex; align-items: center; gap: 4px;
+    }
+
+    .send-btn {
+      height: 36px; padding: 0 20px;
+      border: none; border-radius: var(--radius);
+      background: var(--accent); color: white;
+      font-size: 14px; font-weight: 500;
+      cursor: pointer;
+      transition: background 0.1s;
+    }
+    .send-btn:hover { background: var(--accent-hover); }
+
+    /* ── Individual Messages (shared between both modes) ──── */
+    .message {
+      border: 1px solid var(--border-light);
+      border-radius: var(--radius);
+      overflow: hidden; background: var(--panel);
+    }
+
+    .message.collapsed { cursor: pointer; }
+    .message.collapsed:hover { background: var(--panel-hover); }
+
+    .message-header {
+      display: grid;
+      grid-template-columns: 40px 1fr auto;
+      align-items: center; gap: 12px;
+      padding: 12px 16px;
+    }
+
+    .message.collapsed .message-header { padding: 8px 16px; }
+
+    .msg-avatar {
+      width: 40px; height: 40px;
+      border-radius: var(--radius-pill);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px; font-weight: 600; color: white; flex-shrink: 0;
+    }
+
+    .msg-avatar.human { background: #48bb78; }
+    .msg-avatar.factory { background: var(--accent); }
+    .msg-avatar.system { background: #9aa0a6; }
+
+    .msg-sender-info { min-width: 0; }
+
+    .msg-sender {
+      font-size: 14px; font-weight: 600; color: var(--text);
+      display: flex; align-items: center; gap: 6px;
+    }
+
+    .msg-sender-badge {
+      font-size: 10px; font-weight: 500;
+      padding: 1px 6px; border-radius: var(--radius-sm);
+      color: var(--info); background: var(--info-bg);
+    }
+
+    .msg-to { font-size: 12px; color: var(--text-muted); }
+
+    .msg-collapsed-preview {
+      font-size: 13px; color: var(--text-muted);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+
+    .msg-date {
+      font-size: 12px; color: var(--text-muted);
+      white-space: nowrap; flex-shrink: 0;
+    }
+
+    .message-body {
+      padding: 0 16px 16px 68px;
+      font-size: 14px; line-height: 1.6; color: var(--text);
+    }
+
+    .message-body p { margin-bottom: 12px; }
+    .message-body p:last-child { margin-bottom: 0; }
+
+    .message-body code {
+      font-family: var(--font-mono); font-size: 12px;
+      background: #f1f5f9; padding: 2px 6px;
+      border-radius: var(--radius-sm); color: var(--accent-text);
+    }
+
+    .message-body .artifact-card {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 12px 16px; margin: 12px 0;
+      background: #fafcff;
+      display: flex; align-items: center; gap: 12px;
+    }
+
+    .artifact-card .artifact-icon {
+      width: 36px; height: 36px;
+      border-radius: var(--radius);
+      background: var(--accent-soft); color: var(--accent);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px; flex-shrink: 0;
+    }
+
+    .artifact-card .artifact-info { min-width: 0; }
+    .artifact-card .artifact-name { font-size: 13px; font-weight: 600; color: var(--text); }
+    .artifact-card .artifact-detail { font-size: 12px; color: var(--text-muted); }
+
+    .phase-update {
+      border-left: 3px solid var(--accent);
+      padding: 8px 12px; margin: 8px 0;
+      background: var(--accent-soft);
+      border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+      font-size: 13px;
+    }
+    .phase-update .phase-label { font-weight: 600; color: var(--accent-text); }
+
+    .gate-verdict {
+      border-left: 3px solid var(--ok);
+      padding: 8px 12px; margin: 8px 0;
+      background: var(--ok-bg);
+      border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+      font-size: 13px;
+    }
+    .gate-verdict.fail { border-left-color: var(--err); background: var(--err-bg); }
+    .gate-verdict .gate-label { font-weight: 600; }
+
+    .reply-area {
+      margin-top: 12px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px;
+      color: var(--text-muted); font-size: 14px;
+      cursor: text; min-height: 48px;
+      display: flex; align-items: center;
+    }
+    .reply-area:hover { border-color: var(--accent); }
+
+    /* ── Right Sidebar (Lifecycle) ─────────────────────────── */
+    .right-sidebar {
+      border-left: 1px solid var(--border-light);
+      background: var(--panel);
+      overflow-y: auto; min-height: 0;
+      padding: 16px;
+      display: flex; flex-direction: column; gap: 16px;
+    }
+
+    .right-sidebar-header {
+      display: flex; align-items: center; justify-content: space-between;
+    }
+
+    .right-sidebar-title { font-size: 14px; font-weight: 600; color: var(--text); }
+
+    .phase-selector {
+      width: 100%; height: 36px; padding: 0 12px;
+      border: 1px solid var(--border); border-radius: var(--radius);
+      background: var(--panel); font-size: 13px; color: var(--text); cursor: pointer;
+    }
+
+    .lifecycle-phases { display: flex; flex-direction: column; gap: 4px; }
+
+    .lifecycle-phase {
+      border: 1px solid var(--border-light);
+      border-radius: var(--radius); padding: 12px;
+      display: grid; grid-template-columns: 28px 1fr auto;
+      align-items: start; gap: 8px;
+      transition: background 0.1s, border-color 0.1s;
+    }
+    .lifecycle-phase.current { border-color: var(--accent); background: var(--accent-soft); border-left: 3px solid var(--accent); }
+    .lifecycle-phase.completed { opacity: 0.7; }
+    .lifecycle-phase.future { opacity: 0.5; }
+
+    .phase-icon {
+      width: 28px; height: 28px;
+      border-radius: var(--radius-pill);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px; flex-shrink: 0;
+    }
+    .phase-icon.done { background: var(--ok-bg); color: var(--ok); }
+    .phase-icon.active { background: var(--accent-soft); color: var(--accent); }
+    .phase-icon.pending { background: #f1f5f9; color: var(--text-muted); }
+
+    .phase-info { min-width: 0; }
+    .phase-name { font-size: 13px; font-weight: 600; color: var(--text); }
+    .lifecycle-phase.current .phase-name { color: var(--accent-text); }
+    .phase-detail { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+    .phase-time { font-size: 11px; color: var(--text-muted); white-space: nowrap; }
+
+    .lifecycle-progress { display: flex; gap: 2px; padding: 4px 0; }
+    .lifecycle-progress-seg { height: 4px; flex: 1; border-radius: 2px; background: #e8eaed; }
+    .lifecycle-progress-seg.done { background: var(--ok); }
+    .lifecycle-progress-seg.active { background: var(--accent); }
+
+    .run-card {
+      border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 12px; background: #fafcff;
+    }
+    .run-card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+    .run-card-id { font-family: var(--font-mono); font-size: 12px; font-weight: 600; color: var(--accent-text); }
+    .run-card-status { font-size: 11px; font-weight: 500; padding: 2px 8px; border-radius: var(--radius-pill); }
+    .run-card-status.running { color: var(--accent); background: var(--accent-soft); }
+    .run-card-status.passed { color: var(--ok); background: var(--ok-bg); }
+    .run-card-detail { font-size: 12px; color: var(--text-secondary); line-height: 1.5; }
+    .run-card-issues { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+    .run-card-issues-bar { flex: 1; height: 6px; background: #e8eaed; border-radius: 3px; overflow: hidden; }
+    .run-card-issues-fill { height: 100%; background: var(--ok); border-radius: 3px; }
+    .run-card-issues-label { font-size: 11px; color: var(--text-muted); white-space: nowrap; }
+
+    .sidebar-legend {
+      display: flex; gap: 8px; flex-wrap: wrap; padding: 4px 0;
+    }
+    .legend-item { font-size: 11px; display: flex; align-items: center; gap: 4px; color: var(--text-muted); }
+    .legend-dot { width: 8px; height: 8px; border-radius: var(--radius-pill); }
+
+    .right-sidebar-divider { height: 1px; background: var(--border-light); }
+  </style>
+</head>
+<body>
+  <div class="app">
+
+    <!-- ═══ TOPBAR ═══════════════════════════════════════════ -->
+    <header class="topbar">
+      <div class="topbar-left">
+        <button class="hamburger">☰</button>
+        <div class="brand">
+          <div class="brand-mark">P</div>
+          Prior
+        </div>
+      </div>
+      <div class="search-bar">
+        <span class="search-icon">⌕</span>
+        Search rooms, runs, artifacts…
+      </div>
+      <div class="topbar-right">
+        <button class="theme-toggle" title="Toggle dark mode" onclick="toggleTheme()">◐</button>
+        <button class="icon-btn" title="Help">?</button>
+        <button class="icon-btn" title="Settings">⚙</button>
+        <div class="avatar" title="Ian Zepp">IZ</div>
+      </div>
+    </header>
+
+    <!-- ═══ MAIN LAYOUT ═════════════════════════════════════ -->
+    <div class="layout">
+
+      <!-- ─── Left Sidebar ──────────────────────────────── -->
+      <nav class="sidebar">
+        <button class="compose-btn">
+          <span class="compose-icon">✎</span>
+          New Room
+        </button>
+
+        <div class="sidebar-section">
+          <div class="sidebar-item active" onclick="showInbox()">
+            <div class="sidebar-item-left">
+              <span class="sidebar-item-icon">◉</span>
+              <span class="sidebar-item-label">All Rooms</span>
+            </div>
+            <span class="sidebar-count">14</span>
+          </div>
+          <div class="sidebar-item">
+            <div class="sidebar-item-left">
+              <span class="sidebar-item-icon">⚑</span>
+              <span class="sidebar-item-label">Needs Attention</span>
+            </div>
+            <span class="sidebar-count" style="color: var(--warn); font-weight: 600;">3</span>
+          </div>
+          <div class="sidebar-item">
+            <div class="sidebar-item-left">
+              <span class="sidebar-item-icon">★</span>
+              <span class="sidebar-item-label">Starred</span>
+            </div>
+          </div>
+          <div class="sidebar-item">
+            <div class="sidebar-item-left">
+              <span class="sidebar-item-icon">✓</span>
+              <span class="sidebar-item-label">Completed</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="sidebar-divider"></div>
+
+        <!-- General rooms -->
+        <div class="sidebar-section">
+          <div class="sidebar-section-label">General</div>
+          <div class="sidebar-item" onclick="showConversation('general')">
+            <div class="sidebar-item-left">
+              <span class="sidebar-item-icon" style="font-size: 14px;">#</span>
+              <span class="sidebar-item-label">general</span>
+            </div>
+            <span class="sidebar-count">2</span>
+          </div>
+          <div class="sidebar-item">
+            <div class="sidebar-item-left">
+              <span class="sidebar-item-icon" style="font-size: 14px;">#</span>
+              <span class="sidebar-item-label">ops</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="sidebar-divider"></div>
+
+        <!-- Repos with expandable rooms -->
+        <div class="sidebar-section">
+          <div class="sidebar-section-label">Repos</div>
+
+          <div class="sidebar-item" onclick="toggleRepo(this)">
+            <div class="sidebar-item-left">
+              <span class="sidebar-item-icon" style="font-size: 14px;">▾</span>
+              <span class="sidebar-item-label">prior-web</span>
+            </div>
+            <span class="sidebar-count">7</span>
+          </div>
+          <div class="sidebar-sub-item" onclick="showConversation('prior-web-main')">
+            <span class="sidebar-sub-label">#main</span>
+            <span class="sidebar-count">1</span>
+          </div>
+          <div class="sidebar-sub-item" onclick="showInbox()">
+            <span class="sidebar-sub-label">UI Gmail Redesign</span>
+          </div>
+          <div class="sidebar-sub-item">
+            <span class="sidebar-sub-label">Auth Session Drift</span>
+          </div>
+          <div class="sidebar-sub-item">
+            <span class="sidebar-sub-label">Metrics Ingestion</span>
+          </div>
+
+          <div class="sidebar-item" onclick="toggleRepo(this)">
+            <div class="sidebar-item-left">
+              <span class="sidebar-item-icon" style="font-size: 14px;">▸</span>
+              <span class="sidebar-item-label">prior</span>
+            </div>
+            <span class="sidebar-count">4</span>
+          </div>
+
+          <div class="sidebar-item" onclick="toggleRepo(this)">
+            <div class="sidebar-item-left">
+              <span class="sidebar-item-icon" style="font-size: 14px;">▸</span>
+              <span class="sidebar-item-label">prior-gate</span>
+            </div>
+            <span class="sidebar-count">2</span>
+          </div>
+
+          <div class="sidebar-item">
+            <div class="sidebar-item-left">
+              <span class="sidebar-item-icon" style="font-size: 14px;">▸</span>
+              <span class="sidebar-item-label">docs-site</span>
+            </div>
+            <span class="sidebar-count">1</span>
+          </div>
+
+          <div class="sidebar-item">
+            <div class="sidebar-item-left">
+              <span class="sidebar-item-icon" style="font-size: 14px;">▸</span>
+              <span class="sidebar-item-label">cli-tools</span>
+            </div>
+            <span class="sidebar-count">0</span>
+          </div>
+        </div>
+      </nav>
+
+      <!-- ─── Center: Inbox Mode + Conversation Mode ────── -->
+      <div class="center inbox-mode" id="center">
+
+        <!-- === INBOX MODE: Room List + Reading Pane === -->
+        <div class="room-list-pane">
+          <div class="room-list-toolbar">
+            <div class="room-list-toolbar-left">
+              <button class="toolbar-btn"><input type="checkbox" style="width:16px;height:16px;accent-color:var(--accent);"></button>
+              <button class="toolbar-btn">↻</button>
+              <button class="toolbar-btn">⋮</button>
+            </div>
+            <span class="room-list-info">1–14 of 14</span>
+          </div>
+
+          <div class="room-list">
+            <div class="room-row selected unread">
+              <div class="room-row-check">
+                <input type="checkbox">
+                <span class="room-star starred">★</span>
+              </div>
+              <div class="room-content">
+                <span class="room-sender">UI Gmail Redesign</span>
+                <span class="room-subject">Factory Run #a17d — Implementing</span>
+                <span class="room-snippet">Phase transition: Plan → Execute. 4 issues materialized, 2 running.</span>
+              </div>
+              <div class="room-meta">
+                <span class="room-date">9:21 AM</span>
+                <span class="room-tag info">prior-web</span>
+              </div>
+            </div>
+
+            <div class="room-row unread">
+              <div class="room-row-check">
+                <input type="checkbox">
+                <span class="room-star">☆</span>
+              </div>
+              <div class="room-content">
+                <span class="room-sender">Auth Session Drift</span>
+                <span class="room-subject">Factory Run #c892 — Gated (blocked)</span>
+                <span class="room-snippet">Gate check failed: merge-readiness verdict FAIL. 1 blocking item.</span>
+              </div>
+              <div class="room-meta">
+                <span class="room-date">8:44 AM</span>
+                <span class="room-tag warn">Blocked</span>
+              </div>
+            </div>
+
+            <div class="room-row">
+              <div class="room-row-check">
+                <input type="checkbox">
+                <span class="room-star">☆</span>
+              </div>
+              <div class="room-content">
+                <span class="room-sender">Metrics Ingestion Pipeline</span>
+                <span class="room-subject">Factory Run #f401 — Verifying</span>
+                <span class="room-snippet">Verification report generated. All tests pass. Awaiting gate check.</span>
+              </div>
+              <div class="room-meta">
+                <span class="room-date">7:58 AM</span>
+                <span class="room-tag ok">Healthy</span>
+              </div>
+            </div>
+
+            <div class="room-row">
+              <div class="room-row-check">
+                <input type="checkbox">
+                <span class="room-star">☆</span>
+              </div>
+              <div class="room-content">
+                <span class="room-sender">Mobile Layout Pass</span>
+                <span class="room-subject">Room discussion — no active run</span>
+                <span class="room-snippet">Human reply with acceptance notes. Waiting for next run to start.</span>
+              </div>
+              <div class="room-meta">
+                <span class="room-date">Yesterday</span>
+              </div>
+            </div>
+
+            <div class="room-row">
+              <div class="room-row-check">
+                <input type="checkbox">
+                <span class="room-star">☆</span>
+              </div>
+              <div class="room-content">
+                <span class="room-sender">Gate Proto Cleanup</span>
+                <span class="room-subject">Factory Run #d110 — Completed</span>
+                <span class="room-snippet">Run completed successfully. PR #47 merged to main.</span>
+              </div>
+              <div class="room-meta">
+                <span class="room-date">Mar 17</span>
+                <span class="room-tag ok">Done</span>
+              </div>
+            </div>
+
+            <div class="room-row unread">
+              <div class="room-row-check">
+                <input type="checkbox">
+                <span class="room-star">☆</span>
+              </div>
+              <div class="room-content">
+                <span class="room-sender">WebSocket Reconnect</span>
+                <span class="room-subject">Factory Run #e220 — Failed</span>
+                <span class="room-snippet">Checkpoint merge conflict on 2 issue branches. Needs manual resolution.</span>
+              </div>
+              <div class="room-meta">
+                <span class="room-date">Mar 17</span>
+                <span class="room-tag err">Failed</span>
+              </div>
+            </div>
+
+            <div class="room-row">
+              <div class="room-row-check">
+                <input type="checkbox">
+                <span class="room-star">☆</span>
+              </div>
+              <div class="room-content">
+                <span class="room-sender">Config Hot Reload</span>
+                <span class="room-subject">Factory Run #b330 — Completed</span>
+                <span class="room-snippet">All gates passed. Review bundle generated. PR #44 merged.</span>
+              </div>
+              <div class="room-meta">
+                <span class="room-date">Mar 16</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Inbox: Reading Pane -->
+        <div class="reading-pane">
+          <div class="thread-header">
+            <h1 class="thread-title">UI Gmail Redesign</h1>
+            <div class="thread-meta">
+              <span>Repo: prior-web</span>
+              <span>·</span>
+              <span>Room: #ui-redesign</span>
+              <span>·</span>
+              <span>Active run: #a17d</span>
+              <span class="thread-meta-tag info">Implementing</span>
+            </div>
+          </div>
+          <div class="thread-actions">
+            <button class="toolbar-btn">↶ Reply</button>
+            <button class="toolbar-btn">↷ Forward</button>
+            <button class="toolbar-btn">⋯</button>
+          </div>
+          <div class="thread-messages">
+            <div class="message">
+              <div class="message-header">
+                <div class="msg-avatar human">IZ</div>
+                <div class="msg-sender-info">
+                  <div class="msg-sender">Ian Zepp</div>
+                  <div class="msg-to">to #ui-redesign</div>
+                </div>
+                <span class="msg-date">Mar 19, 8:42 AM</span>
+              </div>
+              <div class="message-body">
+                <p>Redesign the prior-web UI to follow a Gmail-style layout. Repos as folders, rooms as emails, factory runs post threaded updates.</p>
+              </div>
+            </div>
+
+            <div class="message collapsed">
+              <div class="message-header">
+                <div class="msg-avatar factory">F</div>
+                <div class="msg-sender-info">
+                  <div class="msg-collapsed-preview"><strong>Factory #a17d</strong> — Planning started. Interpreting problem brief.</div>
+                </div>
+                <span class="msg-date">8:43 AM</span>
+              </div>
+            </div>
+            <div class="message collapsed">
+              <div class="message-header">
+                <div class="msg-avatar factory">F</div>
+                <div class="msg-sender-info">
+                  <div class="msg-collapsed-preview"><strong>Factory #a17d</strong> — Artifact: interpreted_problem v1 created</div>
+                </div>
+                <span class="msg-date">8:44 AM</span>
+              </div>
+            </div>
+            <div class="message collapsed">
+              <div class="message-header">
+                <div class="msg-avatar factory">F</div>
+                <div class="msg-sender-info">
+                  <div class="msg-collapsed-preview"><strong>Factory #a17d</strong> — Artifact: normalized_spec v1 · stage_graph v1 · 4 issues</div>
+                </div>
+                <span class="msg-date">8:51 AM</span>
+              </div>
+            </div>
+
+            <div class="message">
+              <div class="message-header">
+                <div class="msg-avatar factory">F</div>
+                <div class="msg-sender-info">
+                  <div class="msg-sender">Factory Run #a17d <span class="msg-sender-badge">automated</span></div>
+                  <div class="msg-to">planning gate → execution</div>
+                </div>
+                <span class="msg-date">8:52 AM</span>
+              </div>
+              <div class="message-body">
+                <div class="gate-verdict"><span class="gate-label">Planning Gate: PASS.</span> Advancing to implementation.</div>
+                <div class="phase-update"><span class="phase-label">Phase: Planning → Implementing.</span> 4 execution issues ready.</div>
+              </div>
+            </div>
+
+            <div class="message">
+              <div class="message-header">
+                <div class="msg-avatar factory">F</div>
+                <div class="msg-sender-info">
+                  <div class="msg-sender">Factory Run #a17d <span class="msg-sender-badge">automated</span></div>
+                  <div class="msg-to">execution progress</div>
+                </div>
+                <span class="msg-date">9:21 AM</span>
+              </div>
+              <div class="message-body">
+                <p>2 of 4 issues running:</p>
+                <div class="artifact-card">
+                  <div class="artifact-icon">◈</div>
+                  <div class="artifact-info">
+                    <div class="artifact-name">implement-layout-shell</div>
+                    <div class="artifact-detail">Running · Branch: feat/a17d-layout-shell</div>
+                  </div>
+                </div>
+                <div class="artifact-card">
+                  <div class="artifact-icon">◈</div>
+                  <div class="artifact-info">
+                    <div class="artifact-name">implement-sidebar-repos</div>
+                    <div class="artifact-detail">Running · Branch: feat/a17d-sidebar</div>
+                  </div>
+                </div>
+                <div class="artifact-card">
+                  <div class="artifact-icon">◇</div>
+                  <div class="artifact-info">
+                    <div class="artifact-name">implement-reading-pane</div>
+                    <div class="artifact-detail">Ready · Waiting on layout-shell</div>
+                  </div>
+                </div>
+                <div class="artifact-card">
+                  <div class="artifact-icon">◇</div>
+                  <div class="artifact-info">
+                    <div class="artifact-name">implement-lifecycle-sidebar</div>
+                    <div class="artifact-detail">Ready · Waiting on layout-shell</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="reply-area">Click here to reply…</div>
+          </div>
+        </div>
+
+        <!-- === CONVERSATION MODE: Full-width chat === -->
+        <div class="conversation-view">
+          <div class="conversation-topbar">
+            <button class="back-btn" onclick="showInbox()" title="Back to inbox">←</button>
+            <div class="conversation-room-info">
+              <div class="conversation-room-name" id="conv-room-name">#general</div>
+              <div class="conversation-room-context" id="conv-room-context">General questions and LLM discussions</div>
+            </div>
+            <div class="conversation-participants">
+              <div class="participant-dot" style="background: #48bb78;"></div>
+              <div class="participant-dot" style="background: var(--accent);"></div>
+              <span class="participant-label">3 active</span>
+            </div>
+          </div>
+
+          <div class="conversation-messages" id="conv-messages">
+            <!-- #general conversation -->
+            <div class="message" id="conv-general">
+              <div class="message-header">
+                <div class="msg-avatar human">IZ</div>
+                <div class="msg-sender-info">
+                  <div class="msg-sender">Ian Zepp</div>
+                  <div class="msg-to">to #general</div>
+                </div>
+                <span class="msg-date">Mar 19, 7:15 AM</span>
+              </div>
+              <div class="message-body">
+                <p>What's the best approach for structuring a Leptos app with multiple layout shells that share a sidebar but swap the center content? Looking for patterns that avoid full-page re-renders.</p>
+              </div>
+            </div>
+
+            <div class="message" id="conv-general-2">
+              <div class="message-header">
+                <div class="msg-avatar system">AI</div>
+                <div class="msg-sender-info">
+                  <div class="msg-sender">Claude <span class="msg-sender-badge">assistant</span></div>
+                  <div class="msg-to">to #general</div>
+                </div>
+                <span class="msg-date">7:15 AM</span>
+              </div>
+              <div class="message-body">
+                <p>In Leptos 0.8, the cleanest approach is nested routes with a shared layout component. Your outer route renders the sidebar + shell, and child routes swap the center panel:</p>
+                <p><code>&lt;Route path="/app" view=AppShell&gt;</code> wraps the sidebar, then <code>&lt;Outlet/&gt;</code> in the center column renders whichever child route matches — inbox, conversation, run detail, etc. Only the <code>&lt;Outlet/&gt;</code> re-renders on navigation.</p>
+                <p>The sidebar stays mounted and reactive. If you need shared state across views (selected room, active run), use <code>provide_context</code> at the shell level.</p>
+              </div>
+            </div>
+
+            <div class="message" id="conv-general-3">
+              <div class="message-header">
+                <div class="msg-avatar human">IZ</div>
+                <div class="msg-sender-info">
+                  <div class="msg-sender">Ian Zepp</div>
+                  <div class="msg-to">to #general</div>
+                </div>
+                <span class="msg-date">7:22 AM</span>
+              </div>
+              <div class="message-body">
+                <p>That maps well to what I need. The sidebar (repos/rooms) is always visible, and the center swaps between inbox mode (room list + reading pane) and conversation mode (full-width chat). Good — I'll use that pattern.</p>
+              </div>
+            </div>
+
+            <!-- #main conversation (hidden by default) -->
+            <div class="message" id="conv-main" style="display: none;">
+              <div class="message-header">
+                <div class="msg-avatar human">IZ</div>
+                <div class="msg-sender-info">
+                  <div class="msg-sender">Ian Zepp</div>
+                  <div class="msg-to">to prior-web/#main</div>
+                </div>
+                <span class="msg-date">Mar 19, 8:30 AM</span>
+              </div>
+              <div class="message-body">
+                <p>Starting the Gmail-style UI redesign for prior-web. This will replace the current dark ops dashboard with a familiar inbox/conversation pattern. Rooms become emails, repos become folders, factory runs post as threaded replies.</p>
+                <p>The lifecycle sidebar stays on the right. We'll keep the blueprint accent color but move to a lighter, calmer theme overall.</p>
+              </div>
+            </div>
+
+            <div class="message" id="conv-main-2" style="display: none;">
+              <div class="message-header">
+                <div class="msg-avatar factory">F</div>
+                <div class="msg-sender-info">
+                  <div class="msg-sender">Factory Orchestrator <span class="msg-sender-badge">system</span></div>
+                  <div class="msg-to">to prior-web/#main</div>
+                </div>
+                <span class="msg-date">8:31 AM</span>
+              </div>
+              <div class="message-body">
+                <p>Acknowledged. Run #a17d created and linked to this room. Updates will be posted to the task room <strong>UI Gmail Redesign</strong>. Cross-posting summaries here on phase transitions.</p>
+              </div>
+            </div>
+
+            <div class="message" id="conv-main-3" style="display: none;">
+              <div class="message-header">
+                <div class="msg-avatar factory">F</div>
+                <div class="msg-sender-info">
+                  <div class="msg-sender">Factory Orchestrator <span class="msg-sender-badge">system</span></div>
+                  <div class="msg-to">to prior-web/#main</div>
+                </div>
+                <span class="msg-date">8:52 AM</span>
+              </div>
+              <div class="message-body">
+                <div class="phase-update">
+                  <span class="phase-label">Run #a17d:</span> Planning complete, now implementing. 4 issues materialized across 3 stages.
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="conversation-input-area">
+            <div class="conversation-input-wrap">
+              <textarea class="chat-input" placeholder="Message #general…" id="conv-input"></textarea>
+              <div class="conversation-input-actions">
+                <div class="conversation-input-left">
+                  <button class="toolbar-btn">📎 Attach</button>
+                  <button class="toolbar-btn">@ Mention</button>
+                </div>
+                <button class="send-btn">Send</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- ─── Right Sidebar: Lifecycle ──────────────────── -->
+      <aside class="right-sidebar">
+        <div class="right-sidebar-header">
+          <span class="right-sidebar-title">Lifecycle</span>
+        </div>
+
+        <div>
+          <label style="font-size: 12px; color: var(--text-muted); display: block; margin-bottom: 4px;">Active Run</label>
+          <select class="phase-selector">
+            <option>Run #a17d — UI Gmail Redesign</option>
+            <option>Run #c892 — Auth Session Drift</option>
+            <option>Run #f401 — Metrics Ingestion</option>
+          </select>
+        </div>
+
+        <div class="lifecycle-progress">
+          <div class="lifecycle-progress-seg done"></div>
+          <div class="lifecycle-progress-seg done"></div>
+          <div class="lifecycle-progress-seg done"></div>
+          <div class="lifecycle-progress-seg active"></div>
+          <div class="lifecycle-progress-seg"></div>
+          <div class="lifecycle-progress-seg"></div>
+          <div class="lifecycle-progress-seg"></div>
+        </div>
+
+        <div class="lifecycle-phases">
+          <div class="lifecycle-phase completed">
+            <div class="phase-icon done">✓</div>
+            <div class="phase-info">
+              <div class="phase-name">Interpret</div>
+              <div class="phase-detail">Problem brief normalized</div>
+            </div>
+            <span class="phase-time">8:44</span>
+          </div>
+          <div class="lifecycle-phase completed">
+            <div class="phase-icon done">✓</div>
+            <div class="phase-info">
+              <div class="phase-name">Resolve</div>
+              <div class="phase-detail">Repo bindings established</div>
+            </div>
+            <span class="phase-time">8:46</span>
+          </div>
+          <div class="lifecycle-phase completed">
+            <div class="phase-icon done">✓</div>
+            <div class="phase-info">
+              <div class="phase-name">Plan</div>
+              <div class="phase-detail">3 stages, 4 issues materialized</div>
+            </div>
+            <span class="phase-time">8:51</span>
+          </div>
+          <div class="lifecycle-phase current">
+            <div class="phase-icon active">▶</div>
+            <div class="phase-info">
+              <div class="phase-name">Execute</div>
+              <div class="phase-detail">2 of 4 issues running</div>
+            </div>
+            <span class="phase-time">now</span>
+          </div>
+          <div class="lifecycle-phase future">
+            <div class="phase-icon pending">○</div>
+            <div class="phase-info">
+              <div class="phase-name">Verify</div>
+              <div class="phase-detail">Awaiting execution</div>
+            </div>
+          </div>
+          <div class="lifecycle-phase future">
+            <div class="phase-icon pending">○</div>
+            <div class="phase-info">
+              <div class="phase-name">Gate</div>
+              <div class="phase-detail">Merge readiness check</div>
+            </div>
+          </div>
+          <div class="lifecycle-phase future">
+            <div class="phase-icon pending">○</div>
+            <div class="phase-info">
+              <div class="phase-name">Complete</div>
+              <div class="phase-detail">PR + review bundle</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="right-sidebar-divider"></div>
+
+        <div class="run-card">
+          <div class="run-card-header">
+            <span class="run-card-id">Run #a17d</span>
+            <span class="run-card-status running">Implementing</span>
+          </div>
+          <div class="run-card-detail">
+            Target: prior-web<br>
+            Started: Mar 19, 8:42 AM<br>
+            Artifacts: 5 created
+          </div>
+          <div class="run-card-issues">
+            <div class="run-card-issues-bar">
+              <div class="run-card-issues-fill" style="width: 0%;"></div>
+            </div>
+            <span class="run-card-issues-label">0/4 passed</span>
+          </div>
+        </div>
+
+        <div class="right-sidebar-divider"></div>
+
+        <div class="sidebar-legend">
+          <div class="legend-item"><div class="legend-dot" style="background: var(--ok);"></div> Passed</div>
+          <div class="legend-item"><div class="legend-dot" style="background: var(--accent);"></div> Active</div>
+          <div class="legend-item"><div class="legend-dot" style="background: var(--warn);"></div> Blocked</div>
+          <div class="legend-item"><div class="legend-dot" style="background: var(--err);"></div> Failed</div>
+          <div class="legend-item"><div class="legend-dot" style="background: #e8eaed;"></div> Pending</div>
+        </div>
+      </aside>
+
+    </div>
+  </div>
+
+  <script>
+    // ── Theme toggle ────────────────────────────────────
+    function toggleTheme() {
+      const body = document.body;
+      const btn = document.querySelector('.theme-toggle');
+      if (body.getAttribute('data-theme') === 'dark') {
+        body.removeAttribute('data-theme');
+        btn.textContent = '◐';
+        btn.title = 'Toggle dark mode';
+      } else {
+        body.setAttribute('data-theme', 'dark');
+        btn.textContent = '◑';
+        btn.title = 'Toggle light mode';
+      }
+    }
+
+    if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+      toggleTheme();
+    }
+
+    // ── View switching ──────────────────────────────────
+    function showInbox() {
+      const center = document.getElementById('center');
+      center.className = 'center inbox-mode';
+      clearActiveItems();
+      document.querySelector('.sidebar-item').classList.add('active'); // "All Rooms"
+    }
+
+    function showConversation(room) {
+      const center = document.getElementById('center');
+      center.className = 'center conversation-mode';
+
+      // Update conversation header
+      const nameEl = document.getElementById('conv-room-name');
+      const ctxEl = document.getElementById('conv-room-context');
+      const inputEl = document.getElementById('conv-input');
+
+      // Toggle message visibility based on room
+      const generalMsgs = ['conv-general', 'conv-general-2', 'conv-general-3'];
+      const mainMsgs = ['conv-main', 'conv-main-2', 'conv-main-3'];
+
+      if (room === 'general') {
+        nameEl.textContent = '#general';
+        ctxEl.textContent = 'General questions and LLM discussions';
+        inputEl.placeholder = 'Message #general…';
+        generalMsgs.forEach(id => document.getElementById(id).style.display = '');
+        mainMsgs.forEach(id => document.getElementById(id).style.display = 'none');
+      } else if (room === 'prior-web-main') {
+        nameEl.textContent = 'prior-web / #main';
+        ctxEl.textContent = 'Repo coordination — prior-web';
+        inputEl.placeholder = 'Message prior-web/#main…';
+        generalMsgs.forEach(id => document.getElementById(id).style.display = 'none');
+        mainMsgs.forEach(id => document.getElementById(id).style.display = '');
+      }
+
+      clearActiveItems();
+    }
+
+    function clearActiveItems() {
+      document.querySelectorAll('.sidebar-item.active, .sidebar-sub-item.active').forEach(el => {
+        el.classList.remove('active');
+      });
+    }
+
+    function toggleRepo(el) {
+      const icon = el.querySelector('.sidebar-item-icon');
+      if (icon.textContent.trim() === '▸') {
+        icon.textContent = '▾';
+      } else {
+        icon.textContent = '▸';
+      }
+    }
+  </script>
+</body>
+</html>

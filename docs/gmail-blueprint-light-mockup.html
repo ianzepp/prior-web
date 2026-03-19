@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Prior Mail UI Mockup</title>
+  <style>
+    :root {
+      --bg: #f4f6f8;
+      --panel: #ffffff;
+      --panel-alt: #f8fafb;
+      --line: #d8e1e8;
+      --line-strong: #c7d3dd;
+      --text: #182026;
+      --muted: #5c7080;
+      --accent: #106ba3;
+      --accent-soft: #ebf3fa;
+      --ok: #0f9960;
+      --warn: #d9822b;
+      --bad: #c23030;
+      --shadow: 0 1px 2px rgba(16, 22, 26, 0.08);
+      --radius: 8px;
+      --font: "Avenir Next", "Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: var(--font);
+      background: linear-gradient(180deg, #f7f9fb 0%, #f1f4f7 100%);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    .app {
+      height: 100vh;
+      display: grid;
+      grid-template-rows: 56px 1fr;
+    }
+
+    .topbar {
+      border-bottom: 1px solid var(--line);
+      background: var(--panel);
+      display: grid;
+      grid-template-columns: 260px 1fr auto;
+      align-items: center;
+      padding: 0 12px;
+      gap: 12px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 600;
+      letter-spacing: 0.01em;
+    }
+
+    .brand-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      background: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-soft);
+    }
+
+    .search {
+      border: 1px solid var(--line);
+      background: var(--panel-alt);
+      border-radius: 999px;
+      height: 36px;
+      padding: 0 14px;
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      font-size: 14px;
+    }
+
+    .top-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .chip,
+    .btn {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      border-radius: 6px;
+      padding: 6px 10px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .layout {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: 248px 340px 1fr 320px;
+    }
+
+    .pane {
+      min-height: 0;
+      border-right: 1px solid var(--line);
+      background: var(--panel);
+      overflow: auto;
+    }
+
+    .pane:last-child {
+      border-right: 0;
+    }
+
+    .pane-header {
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      background: var(--panel);
+      border-bottom: 1px solid var(--line);
+      padding: 12px;
+      font-size: 12px;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .repo-list,
+    .room-list,
+    .thread,
+    .schedule {
+      padding: 8px;
+    }
+
+    .repo {
+      border-radius: 8px;
+      padding: 10px;
+      margin: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 14px;
+      color: #2f3f4f;
+      cursor: default;
+    }
+
+    .repo.active {
+      background: var(--accent-soft);
+      color: #0e5a8a;
+      font-weight: 600;
+    }
+
+    .repo-count {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      font-size: 11px;
+      padding: 2px 7px;
+      color: var(--muted);
+      background: #fff;
+    }
+
+    .room-row {
+      border: 1px solid transparent;
+      border-radius: 8px;
+      padding: 10px;
+      margin: 4px;
+      display: grid;
+      gap: 4px;
+      box-shadow: inset 0 0 0 1px transparent;
+    }
+
+    .room-row.selected {
+      border-color: var(--line-strong);
+      background: var(--panel-alt);
+    }
+
+    .room-row.attn {
+      box-shadow: inset 3px 0 0 var(--warn);
+      background: #fff9f2;
+    }
+
+    .room-top {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      align-items: center;
+      font-size: 13px;
+    }
+
+    .room-name {
+      font-weight: 600;
+      color: #243746;
+    }
+
+    .room-meta {
+      font-size: 12px;
+      color: var(--muted);
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .tag {
+      font-size: 11px;
+      border-radius: 999px;
+      padding: 2px 8px;
+      border: 1px solid;
+      width: fit-content;
+    }
+
+    .tag.ok {
+      color: #0f9960;
+      border-color: #9fe7c8;
+      background: #f0fff7;
+    }
+
+    .tag.warn {
+      color: #bf7326;
+      border-color: #f6cf9f;
+      background: #fff8ee;
+    }
+
+    .tag.info {
+      color: #106ba3;
+      border-color: #abd0ef;
+      background: #f2f8fe;
+    }
+
+    .thread {
+      display: grid;
+      gap: 10px;
+      background: linear-gradient(180deg, #ffffff 0%, #fbfcfd 100%);
+    }
+
+    .thread-head {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 12px;
+      background: #fff;
+      box-shadow: var(--shadow);
+    }
+
+    .thread-title {
+      font-weight: 600;
+      margin-bottom: 6px;
+    }
+
+    .thread-sub {
+      font-size: 13px;
+      color: var(--muted);
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .message {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 12px;
+      background: #fff;
+      box-shadow: var(--shadow);
+    }
+
+    .message.system {
+      border-left: 3px solid var(--accent);
+    }
+
+    .message.human {
+      border-left: 3px solid var(--ok);
+    }
+
+    .message-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .message p {
+      margin: 0;
+      font-size: 14px;
+      line-height: 1.45;
+      color: #2b3f4d;
+    }
+
+    .schedule {
+      display: grid;
+      gap: 10px;
+      background: var(--panel-alt);
+    }
+
+    .field {
+      display: grid;
+      gap: 6px;
+    }
+
+    .label {
+      font-size: 12px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+
+    .select,
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px;
+      background: #fff;
+      font-size: 13px;
+      color: #243746;
+    }
+
+    .phase {
+      border-left: 3px solid transparent;
+      display: grid;
+      gap: 4px;
+    }
+
+    .phase.active {
+      border-left-color: var(--accent);
+      background: #f5faff;
+    }
+
+    .phase-title {
+      font-weight: 600;
+      font-size: 13px;
+    }
+
+    .phase-sub {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    @media (max-width: 1280px) {
+      .layout {
+        grid-template-columns: 220px 300px 1fr;
+      }
+      .schedule-pane {
+        display: none;
+      }
+    }
+
+    @media (max-width: 900px) {
+      .topbar {
+        grid-template-columns: 1fr;
+        height: auto;
+        padding: 8px;
+      }
+      .layout {
+        grid-template-columns: 1fr;
+      }
+      .pane {
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+        max-height: 34vh;
+      }
+      .thread-pane {
+        max-height: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand"><span class="brand-dot"></span>Prior Mail</div>
+      <div class="search">Search rooms, runs, updates...</div>
+      <div class="top-actions">
+        <div class="chip">Needs attention: 3</div>
+        <button class="btn">New Room</button>
+      </div>
+    </header>
+
+    <main class="layout">
+      <aside class="pane">
+        <div class="pane-header">Repos</div>
+        <div class="repo-list">
+          <div class="repo active"><span>prior-web</span><span class="repo-count">7</span></div>
+          <div class="repo"><span>prior-gate</span><span class="repo-count">2</span></div>
+          <div class="repo"><span>docs-site</span><span class="repo-count">0</span></div>
+          <div class="repo"><span>workers</span><span class="repo-count">4</span></div>
+          <div class="repo"><span>cli</span><span class="repo-count">1</span></div>
+        </div>
+      </aside>
+
+      <section class="pane">
+        <div class="pane-header">
+          <span>Rooms</span>
+          <span>Repo: prior-web</span>
+        </div>
+        <div class="room-list">
+          <article class="room-row selected">
+            <div class="room-top">
+              <span class="room-name">UI Gmail Hybrid Mock</span>
+              <span class="room-meta">5m ago</span>
+            </div>
+            <div class="room-meta">Latest: Factory run posted phase transition summary.</div>
+            <span class="tag info">Design</span>
+          </article>
+
+          <article class="room-row attn">
+            <div class="room-top">
+              <span class="room-name">Auth Session Drift</span>
+              <span class="room-meta">12m ago</span>
+            </div>
+            <div class="room-meta">Latest: run failed at gate-check validation.</div>
+            <span class="tag warn">Needs Attention</span>
+          </article>
+
+          <article class="room-row">
+            <div class="room-top">
+              <span class="room-name">Metrics Ingestion</span>
+              <span class="room-meta">1h ago</span>
+            </div>
+            <div class="room-meta">Latest: 2 updates from background run.</div>
+            <span class="tag ok">Healthy</span>
+          </article>
+
+          <article class="room-row">
+            <div class="room-top">
+              <span class="room-name">Mobile Layout Pass</span>
+              <span class="room-meta">Yesterday</span>
+            </div>
+            <div class="room-meta">Latest: human reply with acceptance notes.</div>
+            <span class="tag info">Product</span>
+          </article>
+        </div>
+      </section>
+
+      <section class="pane thread-pane">
+        <div class="pane-header">
+          <span>Thread</span>
+          <span>Room timeline</span>
+        </div>
+
+        <div class="thread">
+          <div class="thread-head">
+            <div class="thread-title">UI Gmail Hybrid Mock</div>
+            <div class="thread-sub">
+              <span>Repo: prior-web</span>
+              <span>Room: #ui-redesign</span>
+              <span>Attention: normal</span>
+              <span>Open runs posting here: 2</span>
+            </div>
+          </div>
+
+          <article class="message human">
+            <div class="message-head">
+              <span>Ian - Human</span>
+              <span>09:14</span>
+            </div>
+            <p>Cross the current Gmail-style shell with a light Blueprint touch. Keep it calm and familiar.</p>
+          </article>
+
+          <article class="message system">
+            <div class="message-head">
+              <span>Factory Run #a17d - External process</span>
+              <span>09:18</span>
+            </div>
+            <p>Phase updated: Build -&gt; Gate Check. Posted status summary and blocked items into this room timeline.</p>
+          </article>
+
+          <article class="message system">
+            <div class="message-head">
+              <span>Factory Run #b091 - External process</span>
+              <span>09:21</span>
+            </div>
+            <p>UI mock artifact generated: docs/gmail-blueprint-light-mockup.html. Awaiting human review.</p>
+          </article>
+        </div>
+      </section>
+
+      <aside class="pane schedule-pane">
+        <div class="pane-header">Lifecycle</div>
+        <div class="schedule">
+          <div class="field">
+            <div class="label">Phase (was days)</div>
+            <div class="select">Gate Check v</div>
+          </div>
+
+          <div class="legend">
+            <span class="tag ok">Passed</span>
+            <span class="tag warn">Blocked</span>
+            <span class="tag info">In Progress</span>
+          </div>
+
+          <div class="card phase">
+            <div class="phase-title">Discover</div>
+            <div class="phase-sub">Completed on Mar 18</div>
+          </div>
+
+          <div class="card phase">
+            <div class="phase-title">Design</div>
+            <div class="phase-sub">Completed on Mar 18</div>
+          </div>
+
+          <div class="card phase active">
+            <div class="phase-title">Gate Check</div>
+            <div class="phase-sub">Active now - waiting on one decision</div>
+          </div>
+
+          <div class="card phase">
+            <div class="phase-title">Ship</div>
+            <div class="phase-sub">Queued</div>
+          </div>
+
+          <div class="card">
+            <div class="phase-title">Phase Notes</div>
+            <div class="phase-sub">Treat factory runs as external emitters. Room thread ingests updates as replies.</div>
+          </div>
+        </div>
+      </aside>
+    </main>
+  </div>
+</body>
+</html>

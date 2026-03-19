@@ -1,19 +1,26 @@
-#![cfg(feature = "ssr")]
-
+#[cfg(feature = "ssr")]
 use axum::http::request::Parts;
+#[cfg(feature = "ssr")]
 use axum_extra::extract::cookie::PrivateCookieJar;
-use leptos::prelude::{expect_context, use_context};
 use leptos::server_fn::error::ServerFnError;
+#[cfg(feature = "ssr")]
+use leptos::prelude::{expect_context, use_context};
 
+#[cfg(feature = "ssr")]
 use crate::auth::session::{SESSION_COOKIE_NAME, SessionCookie};
+#[cfg(feature = "ssr")]
 use crate::runtime::AppState;
-use crate::state::auth::{AuthState, CurrentUser};
+use crate::state::auth::AuthState;
+#[cfg(feature = "ssr")]
+use crate::state::auth::CurrentUser;
 
+#[cfg(feature = "ssr")]
 #[must_use]
 pub fn auth_state_from_parts(parts: &Parts, state: &AppState) -> AuthState {
     current_user_from_parts(parts, state).map_or(AuthState::Anonymous, AuthState::Authenticated)
 }
 
+#[cfg(feature = "ssr")]
 #[must_use]
 pub fn current_user_from_parts(parts: &Parts, state: &AppState) -> Option<CurrentUser> {
     let auth = state.auth.as_ref()?;
@@ -28,6 +35,7 @@ pub fn current_user_from_parts(parts: &Parts, state: &AppState) -> Option<Curren
     Some(session.user)
 }
 
+#[cfg(feature = "ssr")]
 pub fn require_current_user() -> Result<CurrentUser, String> {
     let state = expect_context::<AppState>();
     let parts = use_context::<Parts>()
