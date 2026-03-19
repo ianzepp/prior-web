@@ -1,11 +1,35 @@
 use leptos::prelude::*;
+use leptos::tachys::view::any_view::AnyView;
 use leptos::tachys::view::any_view::IntoAny;
 
 use crate::net::prior_gate::refresh_dashboard;
+use crate::state::auth::AuthState;
 use crate::state::gate::{ConnectionStatus, GateUiState};
 
 #[component]
-pub fn DashboardPage() -> impl IntoView {
+pub fn DashboardPage() -> AnyView {
+    let auth = use_context::<AuthState>().unwrap_or(AuthState::Anonymous);
+    let current_user = match auth {
+        AuthState::Authenticated(user) => user,
+        AuthState::Anonymous => {
+            return view! {
+                <main class="dashboard-shell">
+                    <section class="hero">
+                        <p class="eyebrow">"Prior Web"</p>
+                        <h1>"Authentication required"</h1>
+                        <p class="lede">
+                            "prior-web does not run server-owned gate work for anonymous users. Log in first, then return to the authenticated application shell."
+                        </p>
+                        <div class="actions">
+                            <a class="primary" href="/auth/login?return_to=/app">"Log in"</a>
+                        </div>
+                    </section>
+                </main>
+            }
+            .into_any();
+        }
+    };
+
     let (refresh_tick, set_refresh_tick) = signal(0_u64);
     let gate = Resource::new(move || refresh_tick.get(), |_| refresh_dashboard());
 
@@ -19,8 +43,10 @@ pub fn DashboardPage() -> impl IntoView {
                 <p class="lede">
                     "This surface now treats Prior as a server-side integration boundary. The browser talks to prior-web, and prior-web performs the gate round trip."
                 </p>
+                <p class="lede">{format!("Authenticated as {}", current_user.label())}</p>
                 <div class="actions">
                     <button class="primary" on:click=on_refresh>"Refresh"</button>
+                    <a href="/auth/logout">"Log out"</a>
                 </div>
             </section>
 
@@ -57,6 +83,7 @@ pub fn DashboardPage() -> impl IntoView {
             </Suspense>
         </main>
     }
+    .into_any()
 }
 
 #[component]

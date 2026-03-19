@@ -12,6 +12,7 @@ The app binds to Railway's injected `PORT` automatically. The server entrypoint 
 - `PRIOR_GATE_WS_URL` to point `prior-web` at the Prior gate WebSocket listener
 - `PRIOR_GATE_SERVICE_TOKEN` for service-authenticated gate access when enabled
 - `PRIOR_WEB_GATE_ACTOR` to control the display name used for the current server-owned gate round trip
+- `AUTH0_*` and `PRIOR_WEB_SESSION_SECRET` to enable authenticated web sessions
 
 ## Current State
 
@@ -20,7 +21,10 @@ This is still a skeleton Leptos app, but the integration boundary has moved to t
 The current implementation is a foundation step, not the final session model:
 
 - the dashboard refresh is server-side
+- the public multi-user web trust boundary is `prior-web`
+- Auth0 login issues an app-owned secure session cookie
 - `prior-web` opens a gate connection, performs `hello`, `door:connect`, `door:rooms`, and `door:disconnect`
+- authenticated gate calls are attributed with the Auth0 user `sub`
 - persistent per-user gate sessions and idle timeout policy are still planned work
 
 ## Local Dev Against Railway Gate
@@ -39,4 +43,23 @@ Then run:
 cargo leptos watch
 ```
 
-The local server will use `PRIOR_GATE_WS_URL` and optional `PRIOR_GATE_SERVICE_TOKEN` from `.env` while still binding the web app locally.
+The local server will use `PRIOR_GATE_WS_URL`, optional `PRIOR_GATE_SERVICE_TOKEN`, and the Auth0/session settings from `.env` while still binding the web app locally.
+
+## Auth Setup
+
+To enable login locally or on Railway, configure:
+
+- `AUTH0_DOMAIN`
+- `AUTH0_CLIENT_ID`
+- `AUTH0_CLIENT_SECRET`
+- `AUTH0_CALLBACK_URL`
+- `AUTH0_LOGOUT_RETURN_URL`
+- `PRIOR_WEB_BASE_URL`
+- `PRIOR_WEB_SESSION_SECRET`
+
+Optional:
+
+- `AUTH0_GITHUB_CONNECTION=github` to force the Auth0 GitHub social connection
+- `PRIOR_WEB_SECURE_COOKIES=false` for local HTTP development
+
+If Auth0 is not configured, the app still starts, but authenticated routes and login are unavailable.

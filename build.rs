@@ -10,4 +10,3 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     config.compile_protos(&[proto], &["proto"])?;
     Ok(())
 }
-

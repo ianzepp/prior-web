@@ -7,11 +7,13 @@ use crate::state::gate::GateUiState;
 pub async fn refresh_dashboard() -> Result<GateUiState, ServerFnError> {
     #[cfg(feature = "ssr")]
     {
-        return Ok(ssr::refresh_dashboard().await);
+        return ssr::refresh_dashboard().await.map_err(ServerFnError::new);
     }
 
     #[allow(unreachable_code)]
-    Err(ServerFnError::new("refresh_dashboard is only available on the server"))
+    Err(ServerFnError::new(
+        "refresh_dashboard is only available on the server",
+    ))
 }
 
 #[cfg(feature = "ssr")]
@@ -23,38 +25,39 @@ mod ssr {
     use prost_types::{Struct, Value, value::Kind};
     use tokio_tungstenite::{connect_async, tungstenite::Message as WsMessage};
 
+    use crate::auth::user::require_current_user;
     use crate::net::prior_gate_proto::{
-        ClientEnvelope, ClientHello, GateRequest, ResponseItem, ResponseOp, ServerEnvelope, ServerHello,
-        client_envelope, server_envelope,
+        ClientEnvelope, ClientHello, GateRequest, ResponseItem, ResponseOp, ServerEnvelope,
+        ServerHello, client_envelope, server_envelope,
     };
-    use crate::runtime::{prior_gate_config, prior_web_gate_actor};
+    use crate::runtime::prior_gate_config;
     use crate::state::gate::{ConnectionStatus, GateUiState};
 
-    pub async fn refresh_dashboard() -> GateUiState {
+    pub async fn refresh_dashboard() -> Result<GateUiState, String> {
+        let current_user = require_current_user()?;
         let config = prior_gate_config();
 
-        match load_snapshot().await {
-            Ok(state) => state,
-            Err(error) => GateUiState {
+        match load_snapshot(&current_user.sub).await {
+            Ok(state) => Ok(state),
+            Err(error) => Ok(GateUiState {
                 connection: ConnectionStatus::Disconnected,
                 gate_url: config.ws_url,
                 server_name: None,
                 status: format!("server-side gate refresh failed: {error}"),
                 rooms: Vec::new(),
                 last_event: None,
-            },
+            }),
         }
     }
 
-    async fn load_snapshot() -> Result<GateUiState, String> {
+    async fn load_snapshot(user_id: &str) -> Result<GateUiState, String> {
         let config = prior_gate_config();
-        let actor = prior_web_gate_actor();
         let mut client = PriorGateClient::connect(&config.ws_url).await?;
         let hello = client
-            .hello(config.service_token.clone(), actor.clone())
+            .hello(config.service_token.clone(), user_id.to_string())
             .await?;
         let mut last_event = None;
-        let session_id = client.connect_session(&actor, &mut last_event).await?;
+        let session_id = client.connect_session(user_id, &mut last_event).await?;
         let rooms_result = client.list_rooms(&mut last_event).await;
         let disconnect_result = client.disconnect(&session_id, &mut last_event).await;
 
@@ -65,14 +68,16 @@ mod ssr {
             connection: ConnectionStatus::Connected,
             gate_url: config.ws_url,
             server_name: Some(hello.server_name),
-            status: format!("server-owned gate round trip ok for actor {actor}"),
+            status: format!("server-owned gate round trip ok for user {user_id}"),
             rooms,
             last_event,
         })
     }
 
     struct PriorGateClient {
-        socket: tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>,
+        socket: tokio_tungstenite::WebSocketStream<
+            tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+        >,
         next_request_id: u64,
     }
 
@@ -81,7 +86,10 @@ mod ssr {
             let (socket, _) = connect_async(url)
                 .await
                 .map_err(|error| format!("connect {url}: {error}"))?;
-            Ok(Self { socket, next_request_id: 1 })
+            Ok(Self {
+                socket,
+                next_request_id: 1,
+            })
         }
 
         async fn hello(
@@ -127,8 +135,13 @@ mod ssr {
                 .ok_or_else(|| "door:connect did not return a session id".into())
         }
 
-        async fn list_rooms(&mut self, last_event: &mut Option<String>) -> Result<Vec<String>, String> {
-            let responses = self.request("door:rooms", Struct::default(), last_event).await?;
+        async fn list_rooms(
+            &mut self,
+            last_event: &mut Option<String>,
+        ) -> Result<Vec<String>, String> {
+            let responses = self
+                .request("door:rooms", Struct::default(), last_event)
+                .await?;
             let mut rooms = responses
                 .iter()
                 .filter_map(|response| response.item.as_ref())
@@ -178,14 +191,14 @@ mod ssr {
             loop {
                 let envelope = self.read().await?;
                 match envelope.body {
-                    Some(server_envelope::Body::Response(response)) if response.request_id == request_id => {
+                    Some(server_envelope::Body::Response(response))
+                        if response.request_id == request_id =>
+                    {
                         if response.op == ResponseOp::Error as i32 {
-                            let message = response
-                                .error
-                                .as_ref()
-                                .map_or_else(|| "request failed".to_string(), |body| {
-                                    format!("{}: {}", body.code, body.message)
-                                });
+                            let message = response.error.as_ref().map_or_else(
+                                || "request failed".to_string(),
+                                |body| format!("{}: {}", body.code, body.message),
+                            );
                             return Err(format!("{syscall} failed: {message}"));
                         }
 
@@ -245,7 +258,9 @@ mod ssr {
                             .await
                             .map_err(|error| format!("write pong: {error}"))?;
                     }
-                    WsMessage::Close(_) => return Err("read envelope payload: websocket closed".into()),
+                    WsMessage::Close(_) => {
+                        return Err("read envelope payload: websocket closed".into());
+                    }
                     WsMessage::Pong(_) => {}
                     WsMessage::Text(_) => {}
                     WsMessage::Frame(_) => {}
@@ -264,7 +279,9 @@ mod ssr {
     }
 
     fn string_value(value: &str) -> Value {
-        Value { kind: Some(Kind::StringValue(value.to_string())) }
+        Value {
+            kind: Some(Kind::StringValue(value.to_string())),
+        }
     }
 
     fn response_item_session(item: &ResponseItem) -> Option<String> {

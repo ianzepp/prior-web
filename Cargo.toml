@@ -27,13 +27,18 @@ ssr = [
     "leptos_meta/ssr",
     "leptos_router/ssr",
     "dep:axum",
+    "dep:axum-extra",
     "dep:futures-util",
     "dep:leptos_axum",
+    "dep:openidconnect",
+    "dep:reqwest",
+    "dep:time",
     "dep:tokio",
     "dep:tokio-tungstenite",
     "dep:tower-http",
     "dep:tracing",
     "dep:tracing-subscriber",
+    "dep:urlencoding",
 ]
 
 [dependencies]
@@ -46,16 +51,21 @@ prost = "0.13"
 prost-types = "0.13"
 
 axum = { version = "0.8", optional = true }
+axum-extra = { version = "0.10", features = ["cookie-private", "cookie-key-expansion"], optional = true }
 console_error_panic_hook = { version = "0.1", optional = true }
 console_log = { version = "1", optional = true }
 futures-util = { version = "0.3", optional = true }
 leptos_axum = { version = "0.8", optional = true }
 log = { version = "0.4", optional = true }
+openidconnect = { version = "4", default-features = false, features = ["reqwest", "rustls-tls"], optional = true }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"], optional = true }
+time = { version = "0.3", optional = true }
 tokio = { version = "1", features = ["full"], optional = true }
 tokio-tungstenite = { version = "0.27", optional = true }
 tower-http = { version = "0.6", features = ["fs"], optional = true }
 tracing = { version = "0.1", optional = true }
 tracing-subscriber = { version = "0.3", optional = true }
+urlencoding = { version = "2", optional = true }
 wasm-bindgen = { version = "0.2", optional = true }
 
 [build-dependencies]
