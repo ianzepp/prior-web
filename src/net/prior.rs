@@ -48,7 +48,9 @@ pub struct RepoImportResult {
 pub async fn refresh_dashboard() -> Result<GateUiState, ServerFnError> {
     #[cfg(feature = "ssr")]
     {
-        return client::refresh_dashboard().await.map_err(ServerFnError::new);
+        return client::refresh_dashboard()
+            .await
+            .map_err(ServerFnError::new);
     }
 
     #[allow(unreachable_code)]
@@ -74,7 +76,9 @@ pub async fn list_known_rooms() -> Result<Vec<String>, ServerFnError> {
 pub async fn list_room_actors(room: String) -> Result<Vec<RoomActor>, ServerFnError> {
     #[cfg(feature = "ssr")]
     {
-        return client::list_room_actors(&room).await.map_err(ServerFnError::new);
+        return client::list_room_actors(&room)
+            .await
+            .map_err(ServerFnError::new);
     }
 
     #[allow(unreachable_code)]
@@ -170,9 +174,7 @@ pub(crate) mod client {
     use crate::runtime::prior_gate_config;
     use crate::state::gate::{ConnectionStatus, GateUiState};
 
-    use super::{
-        RepoEntry, RepoImportResult, RoomActor, RoomHistoryEntry, RoomMessageEntry,
-    };
+    use super::{RepoEntry, RepoImportResult, RoomActor, RoomHistoryEntry, RoomMessageEntry};
 
     const SECRET_AUTH_TOKEN: &str = "auth_token";
 
@@ -239,10 +241,10 @@ pub(crate) mod client {
         let mut session = connect_session(&actor, None).await?;
         let mut pairs = Vec::new();
         if let Some(before) = before {
-            pairs.push(("before", number_value(before as f64)));
+            pairs.push(("before", i64_number_value(before)?));
         }
         if let Some(limit) = limit {
-            pairs.push(("limit", number_value(limit as f64)));
+            pairs.push(("limit", usize_number_value(limit)?));
         }
         let result = session
             .request_items("room:history", Some(room), struct_from_vec(pairs), None)
@@ -290,7 +292,10 @@ pub(crate) mod client {
         disconnect_with_result(&mut session, result).await
     }
 
-    pub(crate) async fn connect_session(actor: &str, room: Option<&str>) -> Result<PriorSession, String> {
+    pub(crate) async fn connect_session(
+        actor: &str,
+        room: Option<&str>,
+    ) -> Result<PriorSession, String> {
         let config = prior_gate_config();
         let mut client = PriorGateClient::connect(&config.ws_url).await?;
         let hello = client
@@ -318,8 +323,7 @@ pub(crate) mod client {
         let disconnect_result = session.disconnect().await;
         match (result, disconnect_result) {
             (Ok(value), Ok(())) => Ok(value),
-            (Err(error), _) => Err(error),
-            (Ok(_), Err(error)) => Err(error),
+            (Err(error), _) | (Ok(_), Err(error)) => Err(error),
         }
     }
 
@@ -331,7 +335,10 @@ pub(crate) mod client {
     }
 
     impl PriorSession {
-        pub(crate) async fn list_known_rooms(&mut self, last_event: &mut Option<String>) -> Result<Vec<String>, String> {
+        pub(crate) async fn list_known_rooms(
+            &mut self,
+            last_event: &mut Option<String>,
+        ) -> Result<Vec<String>, String> {
             let responses = self
                 .client
                 .request_raw("door:rooms", None, Struct::default(), None, last_event)
@@ -356,7 +363,11 @@ pub(crate) mod client {
                 .await
         }
 
-        pub(crate) async fn send_message(&mut self, room: &str, content: &str) -> Result<Vec<RoomMessageEntry>, String> {
+        pub(crate) async fn send_message(
+            &mut self,
+            room: &str,
+            content: &str,
+        ) -> Result<Vec<RoomMessageEntry>, String> {
             let data = struct_from_vec(vec![
                 ("session", string_value(&self.session_id)),
                 ("room", string_value(room)),
@@ -373,7 +384,8 @@ pub(crate) mod client {
             secrets: Option<Struct>,
         ) -> Result<T, String> {
             let mut items = self.request_items(syscall, room, data, secrets).await?;
-            items.pop()
+            items
+                .pop()
                 .ok_or_else(|| format!("{syscall} returned no items"))
         }
 
@@ -526,9 +538,12 @@ pub(crate) mod client {
                     Some(server_envelope::Body::Event(event)) => {
                         *last_event = Some(format!("{}: {}", event.topic, event.event_id));
                     }
-                    Some(server_envelope::Body::Pong(_)) => {}
-                    Some(server_envelope::Body::Hello(_)) => {}
-                    Some(server_envelope::Body::Response(_)) | None => {}
+                    Some(
+                        server_envelope::Body::Pong(_)
+                        | server_envelope::Body::Hello(_)
+                        | server_envelope::Body::Response(_),
+                    )
+                    | None => {}
                 }
             }
         }
@@ -573,20 +588,17 @@ pub(crate) mod client {
                     WsMessage::Close(_) => {
                         return Err("read envelope payload: websocket closed".into());
                     }
-                    WsMessage::Pong(_) => {}
-                    WsMessage::Text(_) => {}
-                    WsMessage::Frame(_) => {}
+                    WsMessage::Pong(_) | WsMessage::Text(_) | WsMessage::Frame(_) => {}
                 }
             }
         }
     }
 
     fn item_to_typed<T: serde::de::DeserializeOwned>(item: &ResponseItem) -> Result<T, String> {
-        let value = item
-            .data
-            .as_ref()
-            .map(struct_to_json_object)
-            .unwrap_or_else(|| serde_json::Value::Object(Default::default()));
+        let value = item.data.as_ref().map_or_else(
+            || serde_json::Value::Object(serde_json::Map::default()),
+            struct_to_json_object,
+        );
         serde_json::from_value(value).map_err(|error| format!("decode response item: {error}"))
     }
 
@@ -622,9 +634,9 @@ pub(crate) mod client {
             Some(Kind::StringValue(text)) => serde_json::Value::String(text.clone()),
             Some(Kind::BoolValue(value)) => serde_json::Value::Bool(*value),
             Some(Kind::StructValue(object)) => struct_to_json_object(object),
-            Some(Kind::ListValue(list)) => serde_json::Value::Array(
-                list.values.iter().map(prost_value_to_json).collect(),
-            ),
+            Some(Kind::ListValue(list)) => {
+                serde_json::Value::Array(list.values.iter().map(prost_value_to_json).collect())
+            }
         }
     }
 
@@ -638,6 +650,32 @@ pub(crate) mod client {
         Value {
             kind: Some(Kind::NumberValue(value)),
         }
+    }
+
+    #[allow(clippy::cast_precision_loss)]
+    pub(crate) fn i64_number_value(value: i64) -> Result<Value, String> {
+        const MAX_SAFE_INTEGER: i64 = 9_007_199_254_740_991;
+
+        if !(-MAX_SAFE_INTEGER..=MAX_SAFE_INTEGER).contains(&value) {
+            return Err(format!(
+                "integer {value} exceeds protobuf Struct safe numeric range"
+            ));
+        }
+
+        Ok(number_value(value as f64))
+    }
+
+    #[allow(clippy::cast_precision_loss)]
+    pub(crate) fn usize_number_value(value: usize) -> Result<Value, String> {
+        const MAX_SAFE_INTEGER: usize = 9_007_199_254_740_991;
+
+        if value > MAX_SAFE_INTEGER {
+            return Err(format!(
+                "integer {value} exceeds protobuf Struct safe numeric range"
+            ));
+        }
+
+        Ok(number_value(value as f64))
     }
 
     fn value_as_string(value: &Value) -> Option<String> {

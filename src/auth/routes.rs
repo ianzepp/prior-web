@@ -1,5 +1,3 @@
-#![cfg(feature = "ssr")]
-
 use axum::extract::{Query, State};
 use axum::response::{IntoResponse, Redirect, Response};
 use axum_extra::extract::cookie::PrivateCookieJar;
@@ -33,6 +31,7 @@ pub struct CallbackQuery {
     pub error_description: Option<String>,
 }
 
+#[allow(clippy::unused_async)]
 pub async fn login(
     State(state): State<AppState>,
     jar: PrivateCookieJar,
@@ -84,6 +83,7 @@ pub async fn login(
         .into_response()
 }
 
+#[allow(clippy::too_many_lines)]
 pub async fn callback(
     State(state): State<AppState>,
     jar: PrivateCookieJar,
@@ -160,14 +160,22 @@ pub async fn callback(
     };
 
     if let Some(expected_access_token_hash) = claims.access_token_hash() {
+        let signing_alg = match id_token.signing_alg() {
+            Ok(signing_alg) => signing_alg,
+            Err(error) => {
+                return auth_redirect_failure(&format!("read ID token signing algorithm: {error}"));
+            }
+        };
+        let signing_key = match id_token.signing_key(&verifier) {
+            Ok(signing_key) => signing_key,
+            Err(error) => {
+                return auth_redirect_failure(&format!("read ID token signing key: {error}"));
+            }
+        };
         let actual_access_token_hash = match AccessTokenHash::from_token(
             token_response.access_token(),
-            id_token
-                .signing_alg()
-                .expect("ID token signing algorithm should be present"),
-            id_token
-                .signing_key(&verifier)
-                .expect("ID token signing key should be present"),
+            signing_alg,
+            signing_key,
         ) {
             Ok(hash) => hash,
             Err(error) => {
@@ -198,6 +206,7 @@ pub async fn callback(
         .into_response()
 }
 
+#[allow(clippy::unused_async)]
 pub async fn logout(State(state): State<AppState>, jar: PrivateCookieJar) -> Response {
     let Some(auth) = state.auth.as_ref() else {
         return Redirect::to("/").into_response();

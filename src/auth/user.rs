@@ -2,9 +2,9 @@
 use axum::http::request::Parts;
 #[cfg(feature = "ssr")]
 use axum_extra::extract::cookie::PrivateCookieJar;
-use leptos::server_fn::error::ServerFnError;
 #[cfg(feature = "ssr")]
 use leptos::prelude::{expect_context, use_context};
+use leptos::server_fn::error::ServerFnError;
 
 #[cfg(feature = "ssr")]
 use crate::auth::session::{SESSION_COOKIE_NAME, SessionCookie};
@@ -35,6 +35,10 @@ pub fn current_user_from_parts(parts: &Parts, state: &AppState) -> Option<Curren
     Some(session.user)
 }
 
+/// Returns the authenticated user for the current server request.
+///
+/// # Errors
+/// Returns an error when request context is unavailable or the user is anonymous.
 #[cfg(feature = "ssr")]
 pub fn require_current_user() -> Result<CurrentUser, String> {
     let state = expect_context::<AppState>();
@@ -45,6 +49,7 @@ pub fn require_current_user() -> Result<CurrentUser, String> {
 }
 
 #[leptos::server]
+#[allow(clippy::unused_async)]
 pub async fn current_auth_state() -> Result<AuthState, ServerFnError> {
     #[cfg(feature = "ssr")]
     {

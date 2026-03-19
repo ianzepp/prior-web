@@ -1,6 +1,7 @@
 use leptos::prelude::*;
 use leptos::tachys::view::any_view::AnyView;
 use leptos::tachys::view::any_view::IntoAny;
+use server_fn::error::ServerFnError;
 use std::collections::BTreeSet;
 
 use crate::auth::user::current_auth_state;
@@ -24,20 +25,62 @@ struct ChatMessage {
     is_human: bool,
 }
 
+#[derive(Clone, Copy)]
+struct DashboardUiState {
+    selected_room: ReadSignal<Option<String>>,
+    set_selected_room: WriteSignal<Option<String>>,
+    sidebar_filter: ReadSignal<SidebarFilter>,
+    set_sidebar_filter: WriteSignal<SidebarFilter>,
+    starred_rooms: ReadSignal<BTreeSet<String>>,
+    set_starred_rooms: WriteSignal<BTreeSet<String>>,
+    chat_open: ReadSignal<bool>,
+    set_chat_open: WriteSignal<bool>,
+    chat_messages: ReadSignal<Vec<ChatMessage>>,
+    set_chat_messages: WriteSignal<Vec<ChatMessage>>,
+    chat_sending: ReadSignal<bool>,
+    set_chat_sending: WriteSignal<bool>,
+}
+
+async fn load_gate_snapshot(
+    auth_state: Option<Result<AuthState, ServerFnError>>,
+) -> Option<Result<GateUiState, ServerFnError>> {
+    match auth_state {
+        Some(Ok(AuthState::Authenticated(_))) => Some(refresh_dashboard().await),
+        Some(Ok(AuthState::Anonymous) | Err(_)) | None => None,
+    }
+}
+
 // ── Page Entry ──────────────────────────────────────────
 
 #[component]
 pub fn DashboardPage() -> AnyView {
-    let auth = Resource::new(|| (), |_| current_auth_state());
+    let auth = Resource::new(|| (), |()| current_auth_state());
 
     let (refresh_tick, set_refresh_tick) = signal(0_u64);
-    let gate = Resource::new(move || refresh_tick.get(), |_| refresh_dashboard());
+    let gate = Resource::new(
+        move || (refresh_tick.get(), auth.get()),
+        |(_, auth_state)| load_gate_snapshot(auth_state),
+    );
     let (selected_room, set_selected_room) = signal(None::<String>);
     let (sidebar_filter, set_sidebar_filter) = signal(SidebarFilter::All);
     let (starred_rooms, set_starred_rooms) = signal(BTreeSet::<String>::new());
     let (chat_open, set_chat_open) = signal(false);
     let (chat_messages, set_chat_messages) = signal(Vec::<ChatMessage>::new());
     let (chat_sending, set_chat_sending) = signal(false);
+    let ui = DashboardUiState {
+        selected_room,
+        set_selected_room,
+        sidebar_filter,
+        set_sidebar_filter,
+        starred_rooms,
+        set_starred_rooms,
+        chat_open,
+        set_chat_open,
+        chat_messages,
+        set_chat_messages,
+        chat_sending,
+        set_chat_sending,
+    };
 
     let on_refresh = move |_| set_refresh_tick.update(|count| *count += 1);
 
@@ -58,29 +101,19 @@ pub fn DashboardPage() -> AnyView {
                                 true,
                                 None,
                                 on_refresh,
-                                selected_room,
-                                set_selected_room,
-                                sidebar_filter,
-                                set_sidebar_filter,
-                                starred_rooms,
-                                set_starred_rooms,
-                                chat_open,
-                                set_chat_open,
-                                chat_messages,
-                                set_chat_messages,
-                                chat_sending,
-                                set_chat_sending,
+                                ui,
                             )
                         }>
                             {move || {
                                 let gate_state = gate.get().map_or_else(
                                     || GateUiState::loading("loading gate snapshot"),
                                     |result| match result {
-                                        Ok(state) => state,
-                                        Err(error) => GateUiState::disconnected(
+                                        Some(Ok(state)) => state,
+                                        Some(Err(error)) => GateUiState::disconnected(
                                             "server function failed",
                                             error.to_string(),
                                         ),
+                                        None => GateUiState::loading("loading gate snapshot"),
                                     },
                                 );
 
@@ -90,18 +123,7 @@ pub fn DashboardPage() -> AnyView {
                                     false,
                                     None,
                                     on_refresh,
-                                    selected_room,
-                                    set_selected_room,
-                                    sidebar_filter,
-                                    set_sidebar_filter,
-                                    starred_rooms,
-                                    set_starred_rooms,
-                                    chat_open,
-                                    set_chat_open,
-                                    chat_messages,
-                                    set_chat_messages,
-                                    chat_sending,
-                                    set_chat_sending,
+                                    ui,
                                 )
                             }}
                         </Suspense>
@@ -164,22 +186,11 @@ fn app_shell(
     loading: bool,
     login_url: Option<&'static str>,
     on_refresh: impl FnMut(leptos::ev::MouseEvent) + Copy + 'static,
-    selected_room: ReadSignal<Option<String>>,
-    set_selected_room: WriteSignal<Option<String>>,
-    sidebar_filter: ReadSignal<SidebarFilter>,
-    set_sidebar_filter: WriteSignal<SidebarFilter>,
-    starred_rooms: ReadSignal<BTreeSet<String>>,
-    set_starred_rooms: WriteSignal<BTreeSet<String>>,
-    chat_open: ReadSignal<bool>,
-    set_chat_open: WriteSignal<bool>,
-    chat_messages: ReadSignal<Vec<ChatMessage>>,
-    set_chat_messages: WriteSignal<Vec<ChatMessage>>,
-    chat_sending: ReadSignal<bool>,
-    set_chat_sending: WriteSignal<bool>,
+    ui: DashboardUiState,
 ) -> impl IntoView {
     let user_label = current_user.label();
-    let filter = sidebar_filter.get();
-    let starred = starred_rooms.get();
+    let filter = ui.sidebar_filter.get();
+    let starred = ui.starred_rooms.get();
     let rooms = gate
         .rooms
         .clone()
@@ -190,18 +201,10 @@ fn app_shell(
             SidebarFilter::NeedsAttention | SidebarFilter::Completed => false,
         })
         .collect::<Vec<_>>();
-
-    Effect::new({
-        let rooms = rooms.clone();
-        move |_| {
-            let current = selected_room.get();
-            let next_selection = match current {
-                Some(current) if rooms.iter().any(|room| room == &current) => Some(current),
-                _ => rooms.first().cloned(),
-            };
-            set_selected_room.set(next_selection);
-        }
-    });
+    let selected_room = match ui.selected_room.get() {
+        Some(current) if rooms.iter().any(|room| room == &current) => Some(current),
+        _ => rooms.first().cloned(),
+    };
 
     view! {
         <main class="app-shell">
@@ -211,45 +214,45 @@ fn app_shell(
                 loading=loading
                 on_refresh=on_refresh
                 login_url=login_url.map(str::to_string)
-                on_open_chat=move |_| set_chat_open.set(true)
+                on_open_chat=move |_| ui.set_chat_open.set(true)
             />
             <div class="main-layout">
                 <Sidebar
                     rooms=rooms.clone()
                     gate=gate.clone()
-                    selected_room=selected_room.get()
+                    selected_room=selected_room.clone()
                     active_filter=filter
                     starred_rooms=starred.clone()
-                    on_set_filter=move |value| set_sidebar_filter.set(value)
-                    on_select_room=move |room| set_selected_room.set(Some(room))
+                    on_set_filter=move |value| ui.set_sidebar_filter.set(value)
+                    on_select_room=move |room| ui.set_selected_room.set(Some(room))
                 />
                 <div class="center">
                     <RoomListPane
                         rooms=rooms
                         loading=loading
-                        selected_room=selected_room.get()
+                        selected_room=selected_room
                         active_filter=filter
                         starred_rooms=starred
                         on_toggle_star=move |room| {
-                            set_starred_rooms.update(|rooms| {
+                            ui.set_starred_rooms.update(|rooms| {
                                 if !rooms.insert(room.clone()) {
                                     rooms.remove(&room);
                                 }
                             });
                         }
-                        on_select_room=move |room| set_selected_room.set(Some(room))
+                        on_select_room=move |room| ui.set_selected_room.set(Some(room))
                     />
                     <ReadingPane/>
                 </div>
                 <LifecycleSidebar gate=gate/>
             </div>
             <ChatModal
-                open=chat_open
-                set_open=set_chat_open
-                messages=chat_messages
-                set_messages=set_chat_messages
-                sending=chat_sending
-                set_sending=set_chat_sending
+                open=ui.chat_open
+                set_open=ui.set_chat_open
+                messages=ui.chat_messages
+                set_messages=ui.set_chat_messages
+                sending=ui.chat_sending
+                set_sending=ui.set_chat_sending
             />
         </main>
     }
@@ -436,7 +439,7 @@ where
     // These are accessed via the prompt bar / chat modal instead.
     let filtered_rooms: Vec<String> = rooms
         .into_iter()
-        .filter(|room| !room.starts_with("#"))
+        .filter(|room| !room.starts_with('#'))
         .collect();
     let room_count = filtered_rooms.len();
     let starred_count = starred_rooms.len();
@@ -606,7 +609,7 @@ where
                     {if loading {
                         "Loading…".to_string()
                     } else {
-                        format!("{} room(s)", room_count)
+                        format!("{room_count} room(s)")
                     }}
                 </span>
             </div>
@@ -794,7 +797,7 @@ fn LifecycleSidebar(gate: GateUiState) -> impl IntoView {
                     </span>
                 </div>
                 <div class="run-card-detail">
-                    {format!("Server: {}", server)}
+                    {format!("Server: {server}")}
                     <br/>
                     {format!("Gate: {}", gate.gate_url)}
                     <br/>
@@ -839,11 +842,7 @@ fn ChatModal(
 
         let content_clone = content.clone();
         leptos::task::spawn_local(async move {
-            let result = send_room_message(
-                "#general".to_string(),
-                content_clone,
-            )
-            .await;
+            let result = send_room_message("#general".to_string(), content_clone).await;
 
             match result {
                 Ok(entries) => {
@@ -874,18 +873,12 @@ fn ChatModal(
         });
     };
 
-    let on_send_click = {
-        let on_send = on_send.clone();
-        move |_: leptos::ev::MouseEvent| on_send()
-    };
+    let on_send_click = move |_: leptos::ev::MouseEvent| on_send();
 
-    let on_keydown = {
-        let on_send = on_send.clone();
-        move |event: leptos::ev::KeyboardEvent| {
-            if event.key() == "Enter" && !event.shift_key() {
-                event.prevent_default();
-                on_send();
-            }
+    let on_keydown = move |event: leptos::ev::KeyboardEvent| {
+        if event.key() == "Enter" && !event.shift_key() {
+            event.prevent_default();
+            on_send();
         }
     };
 

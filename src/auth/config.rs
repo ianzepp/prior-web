@@ -1,5 +1,3 @@
-#![cfg(feature = "ssr")]
-
 use axum_extra::extract::cookie::Key;
 use openidconnect::IssuerUrl;
 use openidconnect::core::CoreProviderMetadata;
@@ -26,6 +24,10 @@ pub struct AuthConfig {
 }
 
 impl AuthConfig {
+    /// Returns `Ok(None)` when Auth0 is intentionally unconfigured.
+    ///
+    /// # Errors
+    /// Returns an error when auth is partially configured or contains invalid values.
     pub fn from_env() -> Result<Option<Self>, String> {
         let Some(domain) = read_env("AUTH0_DOMAIN") else {
             return Ok(None);
@@ -40,9 +42,10 @@ impl AuthConfig {
             base_url: require_env("PRIOR_WEB_BASE_URL")?,
             session_secret: require_env("PRIOR_WEB_SESSION_SECRET")?,
             github_connection: read_env("AUTH0_GITHUB_CONNECTION"),
-            secure_cookies: read_env("PRIOR_WEB_SECURE_COOKIES")
-                .map(|value| value != "0" && !value.eq_ignore_ascii_case("false"))
-                .unwrap_or_else(|| !cfg!(debug_assertions) || !domain.contains("localhost")),
+            secure_cookies: read_env("PRIOR_WEB_SECURE_COOKIES").map_or_else(
+                || !cfg!(debug_assertions) || !domain.contains("localhost"),
+                |value| value != "0" && !value.eq_ignore_ascii_case("false"),
+            ),
         }))
     }
 
@@ -52,6 +55,10 @@ impl AuthConfig {
     }
 }
 
+/// Loads the runtime auth client and provider metadata when Auth0 is configured.
+///
+/// # Errors
+/// Returns an error when environment validation or provider discovery fails.
 pub async fn load_auth_runtime() -> Result<Option<AuthRuntime>, String> {
     let Some(config) = AuthConfig::from_env()? else {
         tracing::warn!("Auth0 configuration is absent; prior-web auth is disabled");

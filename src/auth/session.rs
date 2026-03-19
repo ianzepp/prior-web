@@ -1,5 +1,3 @@
-#![cfg(feature = "ssr")]
-
 use axum_extra::extract::cookie::{Cookie, SameSite};
 use serde::{Deserialize, Serialize};
 use time::{Duration, OffsetDateTime};

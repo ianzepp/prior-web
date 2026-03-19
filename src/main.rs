@@ -20,8 +20,8 @@ async fn main() {
 }
 
 async fn run() -> Result<(), String> {
-    let conf = get_configuration(Some("Cargo.toml"))
-        .map_err(|error| format!("leptos config: {error}"))?;
+    let conf =
+        get_configuration(Some("Cargo.toml")).map_err(|error| format!("leptos config: {error}"))?;
     let options = conf.leptos_options;
     let routes = generate_route_list(prior_web::app::App);
     let site_root = PathBuf::from(options.site_root.as_ref());

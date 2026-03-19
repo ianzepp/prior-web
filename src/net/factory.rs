@@ -190,7 +190,9 @@ pub async fn factory_get_run(run_id: i64) -> Result<FactoryRunRecord, ServerFnEr
 pub async fn factory_get_run_status(run_id: i64) -> Result<FactoryRunStatus, ServerFnError> {
     #[cfg(feature = "ssr")]
     {
-        return ssr::get_run_status(run_id).await.map_err(ServerFnError::new);
+        return ssr::get_run_status(run_id)
+            .await
+            .map_err(ServerFnError::new);
     }
 
     #[allow(unreachable_code)]
@@ -255,7 +257,7 @@ mod ssr {
 
     use crate::auth::user::require_current_user;
     use crate::net::prior::client::{
-        PriorSession, connect_session, disconnect_with_result, number_value, struct_from_vec,
+        PriorSession, connect_session, disconnect_with_result, i64_number_value, struct_from_vec,
     };
 
     use super::*;
@@ -278,7 +280,7 @@ mod ssr {
         let result = request_one::<FactoryRunRecord>(
             &mut session,
             "factory:run:get",
-            struct_from_vec(vec![("id", number_value(run_id as f64))]),
+            struct_from_vec(vec![("id", i64_number_value(run_id)?)]),
         )
         .await;
         disconnect_with_result(&mut session, result).await
@@ -290,7 +292,7 @@ mod ssr {
         let result = request_one::<FactoryRunStatus>(
             &mut session,
             "factory:run:status",
-            struct_from_vec(vec![("id", number_value(run_id as f64))]),
+            struct_from_vec(vec![("id", i64_number_value(run_id)?)]),
         )
         .await;
         disconnect_with_result(&mut session, result).await
@@ -303,37 +305,37 @@ mod ssr {
         let run = request_one::<FactoryRunRecord>(
             &mut session,
             "factory:run:get",
-            struct_from_vec(vec![("id", number_value(run_id as f64))]),
+            struct_from_vec(vec![("id", i64_number_value(run_id)?)]),
         )
         .await?;
         let status = request_one::<FactoryRunStatus>(
             &mut session,
             "factory:run:status",
-            struct_from_vec(vec![("id", number_value(run_id as f64))]),
+            struct_from_vec(vec![("id", i64_number_value(run_id)?)]),
         )
         .await?;
         let stages = request_items::<FactoryStageRecord>(
             &mut session,
             "factory:stage:list",
-            struct_from_vec(vec![("run_id", number_value(run_id as f64))]),
+            struct_from_vec(vec![("run_id", i64_number_value(run_id)?)]),
         )
         .await?;
         let issues = request_items::<FactoryIssueRecord>(
             &mut session,
             "factory:issue:list",
-            struct_from_vec(vec![("run_id", number_value(run_id as f64))]),
+            struct_from_vec(vec![("run_id", i64_number_value(run_id)?)]),
         )
         .await?;
         let artifacts = request_items::<FactoryArtifactRecord>(
             &mut session,
             "factory:artifact:list",
-            struct_from_vec(vec![("run_id", number_value(run_id as f64))]),
+            struct_from_vec(vec![("run_id", i64_number_value(run_id)?)]),
         )
         .await?;
         let checkpoints = request_items::<FactoryCheckpointRecord>(
             &mut session,
             "factory:checkpoint:list",
-            struct_from_vec(vec![("run_id", number_value(run_id as f64))]),
+            struct_from_vec(vec![("run_id", i64_number_value(run_id)?)]),
         )
         .await?;
 
