@@ -46,6 +46,8 @@ pub(crate) struct RepoSidebarState {
 pub(crate) struct DashboardUiState {
     pub(crate) selected_run: ReadSignal<Option<i64>>,
     pub(crate) set_selected_run: WriteSignal<Option<i64>>,
+    pub(crate) selected_room: ReadSignal<String>,
+    pub(crate) set_selected_room: WriteSignal<String>,
     pub(crate) selected_repo: ReadSignal<Option<String>>,
     pub(crate) set_selected_repo: WriteSignal<Option<String>>,
     pub(crate) center_mode: ReadSignal<CenterMode>,

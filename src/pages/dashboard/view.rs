@@ -45,9 +45,11 @@ pub(crate) fn shell_loading() -> impl IntoView {
                     repo_feedback=repo_feedback
                     on_set_filter=move |_| {}
                     general_active=false
+                    selected_room="#general".to_string()
                     selected_repo=None
                     on_select_repo=move |_| {}
                     on_open_general=move || {}
+                    on_open_repo_room=move |_| {}
                     on_import_repo=move || {}
                 />
                 <div class="center">
@@ -104,9 +106,11 @@ pub(crate) fn unauthenticated_shell() -> impl IntoView {
                     repo_feedback=repo_feedback
                     on_set_filter=move |_| {}
                     general_active=false
+                    selected_room="#general".to_string()
                     selected_repo=None
                     on_select_repo=move |_| {}
                     on_open_general=move || {}
+                    on_open_repo_room=move |_| {}
                     on_import_repo=move || {}
                 />
                 <div class="center">
@@ -168,9 +172,11 @@ pub(crate) fn error_shell(error: String) -> impl IntoView {
                     repo_feedback=repo_feedback
                     on_set_filter=move |_| {}
                     general_active=false
+                    selected_room="#general".to_string()
                     selected_repo=None
                     on_select_repo=move |_| {}
                     on_open_general=move || {}
+                    on_open_repo_room=move |_| {}
                     on_import_repo=move || {}
                 />
                 <div class="center">
@@ -289,6 +295,12 @@ pub(crate) fn app_shell(
             set_repo_importing.set(false);
         });
     };
+    let open_room = move |room: String| {
+        ui.set_selected_room.set(room);
+        ui.set_chat_messages.set(Vec::new());
+        ui.set_chat_sending.set(false);
+        ui.set_center_mode.set(CenterMode::General);
+    };
 
     view! {
         <main class="app-shell">
@@ -298,7 +310,7 @@ pub(crate) fn app_shell(
                 loading=loading
                 on_refresh=on_refresh
                 login_url=login_url.map(str::to_string)
-                on_open_chat=move |_| ui.set_center_mode.set(CenterMode::General)
+                on_open_chat=move |_| open_room(ui.selected_room.get())
             />
             <div class="main-layout">
                 <Sidebar
@@ -320,6 +332,7 @@ pub(crate) fn app_shell(
                         ui.set_center_mode.set(CenterMode::Runs);
                     }
                     general_active=ui.center_mode.get() == CenterMode::General
+                    selected_room=ui.selected_room.get()
                     selected_repo=ui.selected_repo.get()
                     on_select_repo=move |repo| {
                         let already_selected = ui.selected_repo.get().as_ref() == Some(&repo);
@@ -330,7 +343,8 @@ pub(crate) fn app_shell(
                         }
                         ui.set_center_mode.set(CenterMode::Runs);
                     }
-                    on_open_general=move || ui.set_center_mode.set(CenterMode::General)
+                    on_open_general=move || open_room("#general".to_string())
+                    on_open_repo_room=move |room| open_room(room)
                     on_import_repo=on_import_repo
                 />
                 <div class=if ui.center_mode.get() == CenterMode::General {
@@ -358,6 +372,7 @@ pub(crate) fn app_shell(
                     />
                     <ReadingPane run=selected_run.clone()/>
                     <GeneralConversationView
+                        room=ui.selected_room.get()
                         messages=ui.chat_messages
                         set_messages=ui.set_chat_messages
                         sending=ui.chat_sending
@@ -383,6 +398,7 @@ where
     F: FnMut(leptos::ev::MouseEvent) + Copy + 'static,
     G: Fn(leptos::ev::MouseEvent) + Copy + 'static,
 {
+    let theme = expect_context::<RwSignal<bool>>();
     let status_class = match gate.connection {
         ConnectionStatus::Connecting => "status-pill status-pill--loading",
         ConnectionStatus::Connected => "status-pill status-pill--ok",
@@ -422,6 +438,14 @@ where
 
             <div class="topbar-right">
                 <span class=status_class></span>
+                <button
+                    class="icon-btn"
+                    type="button"
+                    on:click=move |_| theme.update(|dark| *dark = !*dark)
+                    title=move || if theme.get() { "Switch to light mode" } else { "Switch to dark mode" }
+                >
+                    {move || if theme.get() { "☀" } else { "☾" }}
+                </button>
                 <button class="icon-btn" on:click=on_refresh disabled=loading title="Refresh">
                     {if loading { "⟳" } else { "↻" }}
                 </button>
@@ -435,7 +459,7 @@ where
 }
 
 #[component]
-fn Sidebar<F, G, H, I>(
+fn Sidebar<F, G, H, I, J>(
     all_count: usize,
     attention_count: usize,
     starred_count: usize,
@@ -451,16 +475,19 @@ fn Sidebar<F, G, H, I>(
     repo_feedback: ReadSignal<Option<RepoImportFeedback>>,
     on_set_filter: F,
     general_active: bool,
+    selected_room: String,
     selected_repo: Option<String>,
     on_select_repo: G,
     on_open_general: H,
-    on_import_repo: I,
+    on_open_repo_room: I,
+    on_import_repo: J,
 ) -> impl IntoView
 where
     F: Fn(SidebarFilter) + Copy + 'static,
     G: Fn(String) + Copy + Send + 'static,
     H: Fn() + Copy + 'static,
-    I: Fn() + Copy + 'static,
+    I: Fn(String) + Copy + Send + 'static,
+    J: Fn() + Copy + 'static,
 {
     let connection_label = match gate.connection {
         ConnectionStatus::Connecting => "Connecting...",
@@ -478,7 +505,11 @@ where
             <div class="sidebar-section">
                 <div class="sidebar-section-label">"Rooms"</div>
                 <button
-                    class=if general_active { "sidebar-item active" } else { "sidebar-item" }
+                    class=if general_active && selected_room == "#general" {
+                        "sidebar-item active"
+                    } else {
+                        "sidebar-item"
+                    }
                     type="button"
                     on:click=move |_| on_open_general()
                 >
@@ -487,6 +518,24 @@ where
                         <span class="sidebar-item-label">"general"</span>
                     </div>
                 </button>
+                {tracked_repos.iter().cloned().map(|repo| {
+                    let room_label = repo.room;
+                    let is_selected = general_active && selected_room == room_label;
+                    let room_label_for_click = room_label.clone();
+
+                    view! {
+                        <button
+                            class=if is_selected { "sidebar-item active" } else { "sidebar-item" }
+                            type="button"
+                            on:click=move |_| on_open_repo_room(room_label_for_click.clone())
+                        >
+                            <div class="sidebar-item-left">
+                                <span class="sidebar-item-icon">"#"</span>
+                                <span class="sidebar-item-label">{room_label}</span>
+                            </div>
+                        </button>
+                    }
+                }).collect_view()}
             </div>
 
             <div class="sidebar-divider"></div>
@@ -987,62 +1036,38 @@ fn LifecyclePhase(phase: FactoryLifecyclePhaseDisplay) -> impl IntoView {
 
 #[component]
 fn GeneralConversationView(
+    room: String,
     messages: ReadSignal<Vec<ChatMessage>>,
     set_messages: WriteSignal<Vec<ChatMessage>>,
     sending: ReadSignal<bool>,
     set_sending: WriteSignal<bool>,
 ) -> impl IntoView {
     let (draft, set_draft) = signal(String::new());
+    let room_for_click = room.clone();
+    let room_for_keydown = room.clone();
 
-    let on_send = move || {
-        let content = draft.get().trim().to_string();
-        if content.is_empty() || sending.get() {
-            return;
-        }
-
-        set_draft.set(String::new());
-        set_chat_messages_with_human(&set_messages, &content);
-        set_sending.set(true);
-
-        let content_clone = content.clone();
-        leptos::task::spawn_local(async move {
-            let result = send_room_message("#general".to_string(), content_clone).await;
-
-            match result {
-                Ok(entries) => {
-                    set_messages.update(|msgs| {
-                        for entry in entries {
-                            if entry.content.trim().is_empty() {
-                                continue;
-                            }
-                            msgs.push(ChatMessage {
-                                from: entry.actor.unwrap_or_else(|| "Prior".into()),
-                                content: entry.content,
-                                is_human: false,
-                            });
-                        }
-                    });
-                }
-                Err(error) => {
-                    set_messages.update(|msgs| {
-                        msgs.push(ChatMessage {
-                            from: "System".into(),
-                            content: format!("Error: {error}"),
-                            is_human: false,
-                        });
-                    });
-                }
-            }
-            set_sending.set(false);
-        });
+    let on_send_click = move |_: leptos::ev::MouseEvent| {
+        dispatch_room_message(
+            room_for_click.clone(),
+            draft,
+            set_draft,
+            set_messages,
+            sending,
+            set_sending,
+        );
     };
-
-    let on_send_click = move |_: leptos::ev::MouseEvent| on_send();
 
     let on_keydown = move |event: leptos::ev::KeyboardEvent| {
         if event.key() == "Enter" && !event.shift_key() {
             event.prevent_default();
-            on_send();
+            dispatch_room_message(
+                room_for_keydown.clone(),
+                draft,
+                set_draft,
+                set_messages,
+                sending,
+                set_sending,
+            );
         }
     };
 
@@ -1050,9 +1075,13 @@ fn GeneralConversationView(
         <div class="conversation-view">
             <div class="conversation-topbar">
                 <div class="conversation-room-info">
-                    <div class="conversation-room-name">"#general"</div>
+                    <div class="conversation-room-name">{room.clone()}</div>
                     <div class="conversation-room-context">
-                        "General intake for prompts, briefs, and direct requests to Prior."
+                        {if room == "#general" {
+                            "General intake for prompts, briefs, and direct requests to Prior.".to_string()
+                        } else {
+                            "Repo-specific room for directing work against this repository.".to_string()
+                        }}
                     </div>
                 </div>
                 <div class="conversation-participants">
@@ -1138,7 +1167,7 @@ fn GeneralConversationView(
                     ></textarea>
                     <div class="conversation-input-actions">
                         <div class="conversation-input-left">
-                            <span class="conversation-room-context">"Messages go to #general."</span>
+                            <span class="conversation-room-context">{format!("Messages go to {room}.")}</span>
                         </div>
                         <button
                             class="send-btn"
@@ -1163,6 +1192,56 @@ fn set_chat_messages_with_human(set_messages: &WriteSignal<Vec<ChatMessage>>, co
             content,
             is_human: true,
         });
+    });
+}
+
+fn dispatch_room_message(
+    room: String,
+    draft: ReadSignal<String>,
+    set_draft: WriteSignal<String>,
+    set_messages: WriteSignal<Vec<ChatMessage>>,
+    sending: ReadSignal<bool>,
+    set_sending: WriteSignal<bool>,
+) {
+    let content = draft.get().trim().to_string();
+    if content.is_empty() || sending.get() {
+        return;
+    }
+
+    set_draft.set(String::new());
+    set_chat_messages_with_human(&set_messages, &content);
+    set_sending.set(true);
+
+    let content_clone = content.clone();
+    leptos::task::spawn_local(async move {
+        let result = send_room_message(room, content_clone).await;
+
+        match result {
+            Ok(entries) => {
+                set_messages.update(|msgs| {
+                    for entry in entries {
+                        if entry.content.trim().is_empty() {
+                            continue;
+                        }
+                        msgs.push(ChatMessage {
+                            from: entry.actor.unwrap_or_else(|| "Prior".into()),
+                            content: entry.content,
+                            is_human: false,
+                        });
+                    }
+                });
+            }
+            Err(error) => {
+                set_messages.update(|msgs| {
+                    msgs.push(ChatMessage {
+                        from: "System".into(),
+                        content: format!("Error: {error}"),
+                        is_human: false,
+                    });
+                });
+            }
+        }
+        set_sending.set(false);
     });
 }
 

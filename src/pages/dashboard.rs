@@ -138,6 +138,7 @@ fn AuthenticatedDashboard(
 
 fn dashboard_ui_state() -> DashboardUiState {
     let (selected_run, set_selected_run) = signal(None::<i64>);
+    let (selected_room, set_selected_room) = signal("#general".to_string());
     let (selected_repo, set_selected_repo) = signal(None::<String>);
     let (center_mode, set_center_mode) = signal(CenterMode::Runs);
     let (sidebar_filter, set_sidebar_filter) = signal(state::SidebarFilter::All);
@@ -151,6 +152,8 @@ fn dashboard_ui_state() -> DashboardUiState {
     DashboardUiState {
         selected_run,
         set_selected_run,
+        selected_room,
+        set_selected_room,
         selected_repo,
         set_selected_repo,
         center_mode,

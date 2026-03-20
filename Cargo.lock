@@ -1733,6 +1733,7 @@ dependencies = [
  "tracing-subscriber",
  "urlencoding",
  "wasm-bindgen",
+ "web-sys",
 ]
 
 [[package]]
