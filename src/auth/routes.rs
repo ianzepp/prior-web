@@ -1,22 +1,20 @@
 use axum::extract::{Query, State};
 use axum::response::{IntoResponse, Redirect, Response};
 use axum_extra::extract::cookie::PrivateCookieJar;
-use openidconnect::core::{
-    CoreAuthenticationFlow, CoreClient, CoreIdToken, CoreIdTokenClaims, CoreTokenResponse,
-};
-use openidconnect::{
-    AccessTokenHash, AuthType, AuthorizationCode, ClientId, ClientSecret, CsrfToken, Nonce,
-    OAuth2TokenResponse, PkceCodeChallenge, PkceCodeVerifier, RequestTokenError, Scope,
-    TokenResponse,
-};
 use serde::Deserialize;
+use time::OffsetDateTime;
 
 use crate::auth::session::{
-    AuthFlowCookie, FLOW_COOKIE_NAME, SessionCookie, flow_cookie, flow_removal_cookie,
+    AuthFlowCookie, FLOW_COOKIE_NAME, GitHubToken, SessionCookie, flow_cookie, flow_removal_cookie,
     session_cookie, session_removal_cookie,
 };
 use crate::runtime::AppState;
 use crate::state::auth::CurrentUser;
+
+const GITHUB_AUTHORIZE_URL: &str = "https://github.com/login/oauth/authorize";
+const GITHUB_ACCESS_TOKEN_URL: &str = "https://github.com/login/oauth/access_token";
+const GITHUB_USER_URL: &str = "https://api.github.com/user";
+const GITHUB_USER_EMAILS_URL: &str = "https://api.github.com/user/emails";
 
 #[derive(Debug, Deserialize)]
 pub struct LoginQuery {
@@ -31,6 +29,32 @@ pub struct CallbackQuery {
     pub error_description: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+struct GitHubAccessTokenResponse {
+    access_token: String,
+    token_type: String,
+    scope: Option<String>,
+    expires_in: Option<i64>,
+    refresh_token: Option<String>,
+    refresh_token_expires_in: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GitHubUserResponse {
+    id: i64,
+    login: String,
+    name: Option<String>,
+    email: Option<String>,
+    avatar_url: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GitHubUserEmailResponse {
+    email: String,
+    primary: bool,
+    verified: bool,
+}
+
 #[allow(clippy::unused_async)]
 pub async fn login(
     State(state): State<AppState>,
@@ -38,35 +62,12 @@ pub async fn login(
     Query(query): Query<LoginQuery>,
 ) -> Response {
     let Some(auth) = state.auth.as_ref() else {
-        return auth_redirect_failure("auth is not configured");
-    };
-    let client = match build_oidc_client(auth) {
-        Ok(client) => client,
-        Err(error) => return auth_redirect_failure(&error),
+        return auth_redirect_failure("github auth is not configured");
     };
 
     let return_to = sanitize_return_to(query.return_to.as_deref());
-    let (pkce_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();
-    let mut authorize = client
-        .authorize_url(
-            CoreAuthenticationFlow::AuthorizationCode,
-            CsrfToken::new_random,
-            Nonce::new_random,
-        )
-        .add_scope(Scope::new("openid".into()))
-        .add_scope(Scope::new("profile".into()))
-        .add_scope(Scope::new("email".into()))
-        .set_pkce_challenge(pkce_challenge);
-
-    if let Some(connection) = &auth.config.github_connection {
-        authorize = authorize.add_extra_param("connection", connection);
-    }
-
-    let (auth_url, csrf_state, nonce) = authorize.url();
     let flow = AuthFlowCookie {
-        csrf_state: csrf_state.secret().clone(),
-        nonce: nonce.secret().clone(),
-        pkce_verifier: pkce_verifier.secret().clone(),
+        csrf_state: random_token(),
         return_to: return_to.to_string(),
     };
     let flow_json = match serde_json::to_string(&flow) {
@@ -76,30 +77,33 @@ pub async fn login(
         }
     };
 
+    let auth_url = format!(
+        "{GITHUB_AUTHORIZE_URL}?client_id={}&redirect_uri={}&scope={}&state={}",
+        urlencoding::encode(&auth.config.client_id),
+        urlencoding::encode(&auth.config.callback_url),
+        urlencoding::encode(&auth.config.scopes.join(" ")),
+        urlencoding::encode(&flow.csrf_state),
+    );
+
     (
         jar.add(flow_cookie(flow_json, auth.config.secure_cookies)),
-        Redirect::to(auth_url.as_str()),
+        Redirect::to(&auth_url),
     )
         .into_response()
 }
 
-#[allow(clippy::too_many_lines)]
 pub async fn callback(
     State(state): State<AppState>,
     jar: PrivateCookieJar,
     Query(query): Query<CallbackQuery>,
 ) -> Response {
     let Some(auth) = state.auth.as_ref() else {
-        return auth_redirect_failure("auth is not configured");
-    };
-    let client = match build_oidc_client(auth) {
-        Ok(client) => client,
-        Err(error) => return auth_redirect_failure(&error),
+        return auth_redirect_failure("github auth is not configured");
     };
 
     if let Some(error) = query.error {
         let description = query.error_description.unwrap_or_default();
-        tracing::warn!(%error, %description, "Auth0 callback returned an OAuth error");
+        tracing::warn!(%error, %description, "GitHub callback returned an OAuth error");
         return Redirect::to(&auth_denied_redirect_url(&error)).into_response();
     }
 
@@ -123,77 +127,43 @@ pub async fn callback(
         return auth_redirect_failure("missing authorization code");
     };
 
-    let token_request = match client.exchange_code(AuthorizationCode::new(code)) {
-        Ok(request) => request,
-        Err(error) => {
-            return auth_redirect_failure(&format!("build token exchange request: {error}"));
-        }
-    };
-
-    let token_response: CoreTokenResponse = match token_request
-        .set_pkce_verifier(PkceCodeVerifier::new(flow.pkce_verifier))
-        .request_async(&auth.http_client)
+    let token_response = match auth
+        .http_client
+        .post(GITHUB_ACCESS_TOKEN_URL)
+        .header(reqwest::header::ACCEPT, "application/json")
+        .form(&[
+            ("client_id", auth.config.client_id.as_str()),
+            ("client_secret", auth.config.client_secret.as_str()),
+            ("code", code.as_str()),
+            ("redirect_uri", auth.config.callback_url.as_str()),
+        ])
+        .send()
         .await
     {
         Ok(response) => response,
         Err(error) => {
-            if let RequestTokenError::Parse(parse_error, body) = &error {
-                tracing::error!(
-                    parse_path = %parse_error.path(),
-                    parse_error = %parse_error,
-                    body = %String::from_utf8_lossy(body),
-                    "Auth0 token endpoint returned an unparsable response body",
-                );
-            }
             return auth_redirect_failure(&format!("exchange authorization code: {error}"));
         }
     };
-
-    let Some(id_token): Option<&CoreIdToken> = token_response.id_token() else {
-        return auth_redirect_failure("Auth0 did not return an ID token");
-    };
-    let nonce = Nonce::new(flow.nonce);
-    let verifier = client.id_token_verifier();
-    let claims: &CoreIdTokenClaims = match id_token.claims(&verifier, &nonce) {
-        Ok(claims) => claims,
-        Err(error) => return auth_redirect_failure(&format!("verify ID token claims: {error}")),
-    };
-
-    if let Some(expected_access_token_hash) = claims.access_token_hash() {
-        let signing_alg = match id_token.signing_alg() {
-            Ok(signing_alg) => signing_alg,
-            Err(error) => {
-                return auth_redirect_failure(&format!("read ID token signing algorithm: {error}"));
-            }
-        };
-        let signing_key = match id_token.signing_key(&verifier) {
-            Ok(signing_key) => signing_key,
-            Err(error) => {
-                return auth_redirect_failure(&format!("read ID token signing key: {error}"));
-            }
-        };
-        let actual_access_token_hash = match AccessTokenHash::from_token(
-            token_response.access_token(),
-            signing_alg,
-            signing_key,
-        ) {
-            Ok(hash) => hash,
-            Err(error) => {
-                return auth_redirect_failure(&format!("compute access token hash: {error}"));
-            }
-        };
-        if actual_access_token_hash != *expected_access_token_hash {
-            return auth_redirect_failure("access token hash mismatch");
-        }
+    if !token_response.status().is_success() {
+        return auth_redirect_failure(&format!(
+            "exchange authorization code: github returned {}",
+            token_response.status()
+        ));
     }
-
-    let user = CurrentUser {
-        sub: claims.subject().as_str().to_string(),
-        display_name: None,
-        email: claims.email().map(|email| email.as_str().to_string()),
-        avatar_url: None,
+    let token = match token_response.json::<GitHubAccessTokenResponse>().await {
+        Ok(token) => token,
+        Err(error) => {
+            return auth_redirect_failure(&format!("decode github access token response: {error}"));
+        }
     };
-    let session_json = match serde_json::to_string(&SessionCookie::new(user)) {
+
+    let github_token = build_github_token(token);
+    let user = match fetch_github_user(auth, &github_token).await {
+        Ok(user) => user,
+        Err(error) => return auth_redirect_failure(&error),
+    };
+    let session_json = match serde_json::to_string(&SessionCookie::new(user, github_token)) {
         Ok(value) => value,
         Err(error) => return auth_redirect_failure(&format!("serialize session cookie: {error}")),
     };
@@ -212,49 +182,118 @@ pub async fn logout(State(state): State<AppState>, jar: PrivateCookieJar) -> Res
         return Redirect::to("/").into_response();
     };
 
-    let logout_url = format!(
-        "https://{}/v2/logout?client_id={}&returnTo={}",
-        auth.config.domain,
-        urlencoding::encode(&auth.config.client_id),
-        urlencoding::encode(&auth.config.logout_return_url)
-    );
-
     (
         jar.remove(session_removal_cookie(auth.config.secure_cookies))
             .remove(flow_removal_cookie(auth.config.secure_cookies)),
-        Redirect::to(&logout_url),
+        Redirect::to(&auth.config.logout_return_url),
     )
         .into_response()
+}
+
+fn build_github_token(token: GitHubAccessTokenResponse) -> GitHubToken {
+    let now = OffsetDateTime::now_utc().unix_timestamp();
+    GitHubToken {
+        access_token: token.access_token,
+        token_type: token.token_type,
+        scopes: token
+            .scope
+            .as_deref()
+            .map(|scope| {
+                scope
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|scope| !scope.is_empty())
+                    .map(ToOwned::to_owned)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default(),
+        expires_at_unix: token.expires_in.map(|seconds| now + seconds),
+        refresh_token: token.refresh_token,
+        refresh_token_expires_at_unix: token.refresh_token_expires_in.map(|seconds| now + seconds),
+    }
+}
+
+async fn fetch_github_user(
+    auth: &crate::auth::config::AuthRuntime,
+    token: &GitHubToken,
+) -> Result<CurrentUser, String> {
+    let user_response = auth
+        .http_client
+        .get(GITHUB_USER_URL)
+        .bearer_auth(&token.access_token)
+        .send()
+        .await
+        .map_err(|error| format!("fetch github user: {error}"))?;
+    if !user_response.status().is_success() {
+        return Err(format!(
+            "fetch github user: github returned {}",
+            user_response.status()
+        ));
+    }
+    let user = user_response
+        .json::<GitHubUserResponse>()
+        .await
+        .map_err(|error| format!("decode github user response: {error}"))?;
+
+    let email = if let Some(email) = user.email.clone() {
+        Some(email)
+    } else {
+        fetch_primary_email(auth, token).await?
+    };
+
+    Ok(CurrentUser {
+        sub: format!("github:{}", user.id),
+        github_login: user.login.clone(),
+        display_name: user.name.or(Some(user.login)),
+        email,
+        avatar_url: user.avatar_url,
+    })
+}
+
+async fn fetch_primary_email(
+    auth: &crate::auth::config::AuthRuntime,
+    token: &GitHubToken,
+) -> Result<Option<String>, String> {
+    let response = auth
+        .http_client
+        .get(GITHUB_USER_EMAILS_URL)
+        .bearer_auth(&token.access_token)
+        .send()
+        .await
+        .map_err(|error| format!("fetch github user emails: {error}"))?;
+
+    if !response.status().is_success() {
+        return Ok(None);
+    }
+
+    let emails = response
+        .json::<Vec<GitHubUserEmailResponse>>()
+        .await
+        .map_err(|error| format!("decode github user emails response: {error}"))?;
+
+    Ok(emails
+        .into_iter()
+        .find(|email| email.primary && email.verified)
+        .map(|email| email.email))
+}
+
+fn random_token() -> String {
+    use std::fmt::Write;
+
+    use rand::RngCore;
+
+    let mut bytes = [0_u8; 32];
+    rand::thread_rng().fill_bytes(&mut bytes);
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        let _ = write!(&mut out, "{byte:02x}");
+    }
+    out
 }
 
 fn auth_redirect_failure(message: &str) -> Response {
     tracing::error!(%message, "auth flow failed");
     Redirect::to(&auth_denied_redirect_url("login_failed")).into_response()
-}
-
-fn build_oidc_client(
-    auth: &crate::auth::config::AuthRuntime,
-) -> Result<
-    CoreClient<
-        openidconnect::EndpointSet,
-        openidconnect::EndpointNotSet,
-        openidconnect::EndpointNotSet,
-        openidconnect::EndpointNotSet,
-        openidconnect::EndpointMaybeSet,
-        openidconnect::EndpointMaybeSet,
-    >,
-    String,
-> {
-    Ok(CoreClient::from_provider_metadata(
-        auth.provider_metadata.clone(),
-        ClientId::new(auth.config.client_id.clone()),
-        Some(ClientSecret::new(auth.config.client_secret.clone())),
-    )
-    .set_auth_type(AuthType::RequestBody)
-    .set_redirect_uri(
-        openidconnect::RedirectUrl::new(auth.config.callback_url.clone())
-            .map_err(|error| format!("invalid AUTH0_CALLBACK_URL: {error}"))?,
-    ))
 }
 
 fn sanitize_return_to(value: Option<&str>) -> &str {

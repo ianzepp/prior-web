@@ -8,17 +8,41 @@ pub const SESSION_COOKIE_NAME: &str = "prior_web_session";
 pub const FLOW_COOKIE_NAME: &str = "prior_web_auth_flow";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GitHubToken {
+    pub access_token: String,
+    pub token_type: String,
+    pub scopes: Vec<String>,
+    pub expires_at_unix: Option<i64>,
+    pub refresh_token: Option<String>,
+    pub refresh_token_expires_at_unix: Option<i64>,
+}
+
+impl GitHubToken {
+    #[must_use]
+    pub fn is_expired(&self) -> bool {
+        self.expires_at_unix
+            .is_some_and(|expires_at| expires_at <= OffsetDateTime::now_utc().unix_timestamp())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionCookie {
     pub user: CurrentUser,
+    pub github_token: GitHubToken,
     pub expires_at_unix: i64,
 }
 
 impl SessionCookie {
     #[must_use]
-    pub fn new(user: CurrentUser) -> Self {
+    pub fn new(user: CurrentUser, github_token: GitHubToken) -> Self {
+        let token_expiry = github_token
+            .expires_at_unix
+            .unwrap_or_else(|| (OffsetDateTime::now_utc() + Duration::hours(8)).unix_timestamp());
+
         Self {
             user,
-            expires_at_unix: (OffsetDateTime::now_utc() + Duration::hours(8)).unix_timestamp(),
+            github_token,
+            expires_at_unix: token_expiry,
         }
     }
 
@@ -31,8 +55,6 @@ impl SessionCookie {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuthFlowCookie {
     pub csrf_state: String,
-    pub nonce: String,
-    pub pkce_verifier: String,
     pub return_to: String,
 }
 

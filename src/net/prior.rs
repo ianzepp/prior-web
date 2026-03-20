@@ -166,7 +166,7 @@ pub(crate) mod client {
     use prost_types::{Struct, Value, value::Kind};
     use tokio_tungstenite::{connect_async, tungstenite::Message as WsMessage};
 
-    use crate::auth::user::require_current_user;
+    use crate::auth::user::{require_current_user, require_github_access_token};
     use crate::net::prior_gate_proto::{
         ClientEnvelope, ClientHello, GateRequest, ResponseItem, ResponseOp, ServerEnvelope,
         ServerHello, client_envelope, server_envelope,
@@ -177,6 +177,7 @@ pub(crate) mod client {
     use super::{RepoEntry, RepoImportResult, RoomActor, RoomHistoryEntry, RoomMessageEntry};
 
     const SECRET_AUTH_TOKEN: &str = "auth_token";
+    const MAX_SAFE_INTEGER_F64: f64 = 9_007_199_254_740_991.0;
 
     pub async fn refresh_dashboard() -> Result<GateUiState, String> {
         let actor = require_current_user()?.sub;
@@ -279,8 +280,13 @@ pub(crate) mod client {
     ) -> Result<RepoImportResult, String> {
         let actor = require_current_user()?.sub;
         let mut session = connect_session(&actor, None).await?;
-        let secrets =
-            auth_token.map(|token| struct_from_vec(vec![(SECRET_AUTH_TOKEN, string_value(token))]));
+        let session_token = require_github_access_token()
+            .ok()
+            .map(|token| token.access_token);
+        let effective_token = auth_token.map(ToOwned::to_owned).or(session_token);
+        let secrets = effective_token
+            .as_deref()
+            .map(|token| struct_from_vec(vec![(SECRET_AUTH_TOKEN, string_value(token))]));
         let data = struct_from_vec(vec![
             ("clone_url", string_value(clone_url)),
             ("owner", string_value(owner)),
@@ -599,6 +605,7 @@ pub(crate) mod client {
             || serde_json::Value::Object(serde_json::Map::default()),
             struct_to_json_object,
         );
+        let value = normalize_json_numbers(value);
         serde_json::from_value(value).map_err(|error| format!("decode response item: {error}"))
     }
 
@@ -638,6 +645,39 @@ pub(crate) mod client {
                 serde_json::Value::Array(list.values.iter().map(prost_value_to_json).collect())
             }
         }
+    }
+
+    fn normalize_json_numbers(value: serde_json::Value) -> serde_json::Value {
+        match value {
+            serde_json::Value::Array(values) => {
+                serde_json::Value::Array(values.into_iter().map(normalize_json_numbers).collect())
+            }
+            serde_json::Value::Object(map) => serde_json::Value::Object(
+                map.into_iter()
+                    .map(|(key, value)| (key, normalize_json_numbers(value)))
+                    .collect(),
+            ),
+            serde_json::Value::Number(number) => normalize_json_number(number),
+            other => other,
+        }
+    }
+
+    #[allow(clippy::cast_possible_truncation)]
+    fn normalize_json_number(number: serde_json::Number) -> serde_json::Value {
+        let Some(value) = number.as_f64() else {
+            return serde_json::Value::Number(number);
+        };
+
+        if !value.is_finite() || value.fract() != 0.0 {
+            return serde_json::Value::Number(number);
+        }
+
+        if !(-MAX_SAFE_INTEGER_F64..=MAX_SAFE_INTEGER_F64).contains(&value) {
+            return serde_json::Value::Number(number);
+        }
+
+        let integer = value as i64;
+        serde_json::Value::Number(serde_json::Number::from(integer))
     }
 
     pub(crate) fn string_value(value: &str) -> Value {

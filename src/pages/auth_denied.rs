@@ -23,7 +23,10 @@ pub fn AuthDeniedPage() -> impl IntoView {
                     }}
                 </p>
                 <div class="auth-denied-actions">
-                    <a class="btn-primary" href="/auth/login?return_to=/app">"Try again"</a>
+                    <form method="get" action="/auth/login">
+                        <input type="hidden" name="return_to" value="/app"/>
+                        <button class="btn-primary" type="submit">"Try again"</button>
+                    </form>
                     <a class="btn-secondary" href="/">"Back home"</a>
                 </div>
             </div>

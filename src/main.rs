@@ -28,7 +28,7 @@ async fn run() -> Result<(), String> {
     let assets = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("public");
     let site_addr = prior_web::runtime::site_addr(&options);
     let gate = prior_web::runtime::prior_gate_config();
-    let auth = prior_web::auth::config::load_auth_runtime().await?;
+    let auth = prior_web::auth::config::load_auth_runtime()?;
     let state = AppState {
         leptos_options: options.clone(),
         gate,

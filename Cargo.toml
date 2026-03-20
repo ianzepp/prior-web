@@ -30,7 +30,7 @@ ssr = [
     "dep:axum-extra",
     "dep:futures-util",
     "dep:leptos_axum",
-    "dep:openidconnect",
+    "dep:rand",
     "dep:reqwest",
     "dep:time",
     "dep:tokio",
@@ -57,7 +57,7 @@ console_log = { version = "1", optional = true }
 futures-util = { version = "0.3", optional = true }
 leptos_axum = { version = "0.8", optional = true }
 log = { version = "0.4", optional = true }
-openidconnect = { version = "4", default-features = false, features = ["accept-rfc3339-timestamps", "reqwest", "rustls-tls"], optional = true }
+rand = { version = "0.8", optional = true }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"], optional = true }
 time = { version = "0.3", optional = true }
 tokio = { version = "1", features = ["full"], optional = true }

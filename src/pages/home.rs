@@ -14,7 +14,10 @@ pub fn HomePage() -> impl IntoView {
                 <h1>"Concurrent software delivery"</h1>
                 <p>"Prior is a compiler-style software factory. Rooms are your inbox. Factory runs post as threaded updates. The lifecycle sidebar tracks every phase."</p>
                 <div class="auth-denied-actions">
-                    <a class="btn-primary" href="/auth/login?return_to=/app">"Log in"</a>
+                    <form method="get" action="/auth/login">
+                        <input type="hidden" name="return_to" value="/app"/>
+                        <button class="btn-primary" type="submit">"Log in"</button>
+                    </form>
                     <a class="btn-secondary" href="/app">"Open Dashboard"</a>
                 </div>
             </div>

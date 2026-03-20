@@ -5,7 +5,11 @@ use server_fn::error::ServerFnError;
 use std::collections::BTreeSet;
 
 use crate::auth::user::current_auth_state;
-use crate::net::prior::send_room_message;
+use crate::net::factory::{
+    FactoryDashboardView, FactoryLifecyclePhaseDisplay, FactoryRunDisplay, FactoryRunUpdateDisplay,
+    fetch_factory_dashboard,
+};
+use crate::net::prior::{RepoEntry, import_repo, list_repos, send_room_message};
 use crate::net::prior_gate::refresh_dashboard;
 use crate::state::auth::{AuthState, CurrentUser};
 use crate::state::gate::{ConnectionStatus, GateUiState};
@@ -18,6 +22,12 @@ enum SidebarFilter {
     Completed,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CenterMode {
+    Runs,
+    General,
+}
+
 #[derive(Debug, Clone)]
 struct ChatMessage {
     from: String,
@@ -25,20 +35,41 @@ struct ChatMessage {
     is_human: bool,
 }
 
+#[derive(Debug, Clone)]
+struct RepoImportFeedback {
+    message: String,
+    is_error: bool,
+}
+
+#[derive(Debug, Clone)]
+struct RepoSidebarState {
+    repos: Vec<RepoEntry>,
+    loading: bool,
+    error: Option<String>,
+}
+
 #[derive(Clone, Copy)]
 struct DashboardUiState {
-    selected_room: ReadSignal<Option<String>>,
-    set_selected_room: WriteSignal<Option<String>>,
+    selected_run: ReadSignal<Option<i64>>,
+    set_selected_run: WriteSignal<Option<i64>>,
+    selected_repo: ReadSignal<Option<String>>,
+    set_selected_repo: WriteSignal<Option<String>>,
+    center_mode: ReadSignal<CenterMode>,
+    set_center_mode: WriteSignal<CenterMode>,
     sidebar_filter: ReadSignal<SidebarFilter>,
     set_sidebar_filter: WriteSignal<SidebarFilter>,
-    starred_rooms: ReadSignal<BTreeSet<String>>,
-    set_starred_rooms: WriteSignal<BTreeSet<String>>,
-    chat_open: ReadSignal<bool>,
-    set_chat_open: WriteSignal<bool>,
+    starred_runs: ReadSignal<BTreeSet<i64>>,
+    set_starred_runs: WriteSignal<BTreeSet<i64>>,
     chat_messages: ReadSignal<Vec<ChatMessage>>,
     set_chat_messages: WriteSignal<Vec<ChatMessage>>,
     chat_sending: ReadSignal<bool>,
     set_chat_sending: WriteSignal<bool>,
+    repo_draft: ReadSignal<String>,
+    set_repo_draft: WriteSignal<String>,
+    repo_importing: ReadSignal<bool>,
+    set_repo_importing: WriteSignal<bool>,
+    repo_feedback: ReadSignal<Option<RepoImportFeedback>>,
+    set_repo_feedback: WriteSignal<Option<RepoImportFeedback>>,
 }
 
 async fn load_gate_snapshot(
@@ -50,9 +81,26 @@ async fn load_gate_snapshot(
     }
 }
 
-// ── Page Entry ──────────────────────────────────────────
+async fn load_dashboard_view(
+    auth_state: Option<Result<AuthState, ServerFnError>>,
+) -> Option<Result<FactoryDashboardView, ServerFnError>> {
+    match auth_state {
+        Some(Ok(AuthState::Authenticated(_))) => Some(fetch_factory_dashboard().await),
+        Some(Ok(AuthState::Anonymous) | Err(_)) | None => None,
+    }
+}
+
+async fn load_tracked_repos(
+    auth_state: Option<Result<AuthState, ServerFnError>>,
+) -> Option<Result<Vec<RepoEntry>, ServerFnError>> {
+    match auth_state {
+        Some(Ok(AuthState::Authenticated(_))) => Some(list_repos().await),
+        Some(Ok(AuthState::Anonymous) | Err(_)) | None => None,
+    }
+}
 
 #[component]
+#[allow(clippy::too_many_lines)]
 pub fn DashboardPage() -> AnyView {
     let auth = Resource::new(|| (), |()| current_auth_state());
 
@@ -61,28 +109,49 @@ pub fn DashboardPage() -> AnyView {
         move || (refresh_tick.get(), auth.get()),
         |(_, auth_state)| load_gate_snapshot(auth_state),
     );
-    let (selected_room, set_selected_room) = signal(None::<String>);
+    let dashboard = Resource::new(
+        move || (refresh_tick.get(), auth.get()),
+        |(_, auth_state)| load_dashboard_view(auth_state),
+    );
+    let repos = Resource::new(
+        move || (refresh_tick.get(), auth.get()),
+        |(_, auth_state)| load_tracked_repos(auth_state),
+    );
+    let (selected_run, set_selected_run) = signal(None::<i64>);
+    let (selected_repo, set_selected_repo) = signal(None::<String>);
+    let (center_mode, set_center_mode) = signal(CenterMode::Runs);
     let (sidebar_filter, set_sidebar_filter) = signal(SidebarFilter::All);
-    let (starred_rooms, set_starred_rooms) = signal(BTreeSet::<String>::new());
-    let (chat_open, set_chat_open) = signal(false);
+    let (starred_runs, set_starred_runs) = signal(BTreeSet::<i64>::new());
     let (chat_messages, set_chat_messages) = signal(Vec::<ChatMessage>::new());
     let (chat_sending, set_chat_sending) = signal(false);
+    let (repo_draft, set_repo_draft) = signal(String::new());
+    let (repo_importing, set_repo_importing) = signal(false);
+    let (repo_feedback, set_repo_feedback) = signal(None::<RepoImportFeedback>);
     let ui = DashboardUiState {
-        selected_room,
-        set_selected_room,
+        selected_run,
+        set_selected_run,
+        selected_repo,
+        set_selected_repo,
+        center_mode,
+        set_center_mode,
         sidebar_filter,
         set_sidebar_filter,
-        starred_rooms,
-        set_starred_rooms,
-        chat_open,
-        set_chat_open,
+        starred_runs,
+        set_starred_runs,
         chat_messages,
         set_chat_messages,
         chat_sending,
         set_chat_sending,
+        repo_draft,
+        set_repo_draft,
+        repo_importing,
+        set_repo_importing,
+        repo_feedback,
+        set_repo_feedback,
     };
 
     let on_refresh = move |_| set_refresh_tick.update(|count| *count += 1);
+    let refresh_data = move || set_refresh_tick.update(|count| *count += 1);
 
     view! {
         <Suspense fallback=move || {
@@ -98,9 +167,16 @@ pub fn DashboardPage() -> AnyView {
                             app_shell(
                                 fallback_user.clone(),
                                 GateUiState::loading("loading gate snapshot"),
+                                FactoryDashboardView { runs: Vec::new() },
+                                RepoSidebarState {
+                                    repos: Vec::new(),
+                                    loading: true,
+                                    error: None,
+                                },
                                 true,
                                 None,
                                 on_refresh,
+                                refresh_data,
                                 ui,
                             )
                         }>
@@ -116,13 +192,46 @@ pub fn DashboardPage() -> AnyView {
                                         None => GateUiState::loading("loading gate snapshot"),
                                     },
                                 );
+                                let dashboard_state = dashboard.get().map_or_else(
+                                    || FactoryDashboardView { runs: Vec::new() },
+                                    |result| match result {
+                                        Some(Ok(state)) => state,
+                                        Some(Err(_)) | None => FactoryDashboardView { runs: Vec::new() },
+                                    },
+                                );
+                                let repos_state = repos.get();
+                                let repo_sidebar = match repos_state {
+                                    None => RepoSidebarState {
+                                        repos: Vec::new(),
+                                        loading: true,
+                                        error: None,
+                                    },
+                                    Some(Some(Ok(repos))) => RepoSidebarState {
+                                        repos,
+                                        loading: false,
+                                        error: None,
+                                    },
+                                    Some(Some(Err(error))) => RepoSidebarState {
+                                        repos: Vec::new(),
+                                        loading: false,
+                                        error: Some(error.to_string()),
+                                    },
+                                    Some(None) => RepoSidebarState {
+                                        repos: Vec::new(),
+                                        loading: false,
+                                        error: None,
+                                    },
+                                };
 
                                 app_shell(
                                     content_user.clone(),
                                     gate_state,
+                                    dashboard_state,
+                                    repo_sidebar,
                                     false,
                                     None,
                                     on_refresh,
+                                    refresh_data,
                                     ui,
                                 )
                             }}
@@ -138,14 +247,15 @@ pub fn DashboardPage() -> AnyView {
     .into_any()
 }
 
-// ── Shell Variants ──────────────────────────────────────
-
 fn shell_loading() -> impl IntoView {
     let gate = GateUiState::loading("confirming session");
+    let (repo_draft, set_repo_draft) = signal(String::new());
+    let (repo_importing, _) = signal(false);
+    let (repo_feedback, _) = signal(None::<RepoImportFeedback>);
     view! {
         <main class="app-shell">
             <Topbar
-                user_label="Loading\u{2026}".to_string()
+                user_label="Loading...".to_string()
                 gate=gate.clone()
                 loading=true
                 on_refresh=move |_| {}
@@ -154,56 +264,133 @@ fn shell_loading() -> impl IntoView {
             />
             <div class="main-layout">
                 <Sidebar
-                    rooms=vec![]
+                    all_count=0
+                    attention_count=0
+                    starred_count=0
+                    completed_count=0
                     gate=gate.clone()
-                    selected_room=None
+                    tracked_repos=vec![]
+                    repos_loading=true
+                    repo_list_error=None
                     active_filter=SidebarFilter::All
-                    starred_rooms=BTreeSet::new()
+                    repo_draft=repo_draft
+                    set_repo_draft=set_repo_draft
+                    repo_importing=repo_importing
+                    repo_feedback=repo_feedback
                     on_set_filter=move |_| {}
-                    on_select_room=move |_| {}
+                    general_active=false
+                    selected_repo=None
+                    on_select_repo=move |_| {}
+                    on_open_general=move || {}
+                    on_import_repo=move || {}
                 />
                 <div class="center">
-                    <RoomListPane
-                        rooms=vec![]
+                    <RunListPane
+                        runs=vec![]
                         loading=true
-                        selected_room=None
+                        selected_run=None
                         active_filter=SidebarFilter::All
-                        starred_rooms=BTreeSet::new()
+                        starred_runs=BTreeSet::new()
                         on_toggle_star=move |_| {}
-                        on_select_room=move |_| {}
+                        on_select_run=move |_| {}
                     />
-                    <ReadingPane/>
+                    <ReadingPane run=None/>
                 </div>
-                <LifecycleSidebar gate=gate/>
+                <LifecycleSidebar run=None gate=gate/>
             </div>
         </main>
     }
 }
 
+#[allow(
+    clippy::large_types_passed_by_value,
+    clippy::too_many_arguments,
+    clippy::too_many_lines
+)]
 fn app_shell(
     current_user: CurrentUser,
     gate: GateUiState,
+    dashboard: FactoryDashboardView,
+    repo_sidebar: RepoSidebarState,
     loading: bool,
     login_url: Option<&'static str>,
     on_refresh: impl FnMut(leptos::ev::MouseEvent) + Copy + 'static,
+    on_data_changed: impl Fn() + Copy + 'static,
     ui: DashboardUiState,
 ) -> impl IntoView {
     let user_label = current_user.label();
     let filter = ui.sidebar_filter.get();
-    let starred = ui.starred_rooms.get();
-    let rooms = gate
-        .rooms
-        .clone()
-        .into_iter()
-        .filter(|room| match filter {
+    let starred = ui.starred_runs.get();
+    let all_runs = dashboard.runs;
+    let attention_count = all_runs.iter().filter(|run| run.needs_attention).count();
+    let completed_count = all_runs.iter().filter(|run| run.completed).count();
+    let filtered_runs = all_runs
+        .iter()
+        .filter(|run| match filter {
             SidebarFilter::All => true,
-            SidebarFilter::Starred => starred.contains(room),
-            SidebarFilter::NeedsAttention | SidebarFilter::Completed => false,
+            SidebarFilter::NeedsAttention => run.needs_attention,
+            SidebarFilter::Starred => starred.contains(&run.id),
+            SidebarFilter::Completed => run.completed,
         })
+        .filter(|run| {
+            ui.selected_repo
+                .get()
+                .as_ref()
+                .is_none_or(|repo| &run.repo_label == repo)
+        })
+        .cloned()
         .collect::<Vec<_>>();
-    let selected_room = match ui.selected_room.get() {
-        Some(current) if rooms.iter().any(|room| room == &current) => Some(current),
-        _ => rooms.first().cloned(),
+    let selected_run_id = match ui.selected_run.get() {
+        Some(current) if filtered_runs.iter().any(|run| run.id == current) => Some(current),
+        _ => filtered_runs.first().map(|run| run.id),
+    };
+    let selected_run =
+        selected_run_id.and_then(|id| filtered_runs.iter().find(|run| run.id == id).cloned());
+    let on_import_repo = move || {
+        let repo_spec = ui.repo_draft.get().trim().to_string();
+        if repo_spec.is_empty() || ui.repo_importing.get() {
+            return;
+        }
+
+        let (owner, name, clone_url) = match parse_repo_spec(&repo_spec) {
+            Ok(spec) => spec,
+            Err(error) => {
+                ui.set_repo_feedback.set(Some(RepoImportFeedback {
+                    message: error,
+                    is_error: true,
+                }));
+                return;
+            }
+        };
+
+        ui.set_repo_importing.set(true);
+        ui.set_repo_feedback.set(None);
+
+        let set_repo_importing = ui.set_repo_importing;
+        let set_repo_feedback = ui.set_repo_feedback;
+        let set_repo_draft = ui.set_repo_draft;
+        leptos::task::spawn_local(async move {
+            let result = import_repo(clone_url, owner.clone(), name.clone(), None).await;
+
+            match result {
+                Ok(imported) => {
+                    set_repo_draft.set(String::new());
+                    set_repo_feedback.set(Some(RepoImportFeedback {
+                        message: format!("Tracking {owner}/{name} in {}", imported.room),
+                        is_error: false,
+                    }));
+                    on_data_changed();
+                }
+                Err(error) => {
+                    set_repo_feedback.set(Some(RepoImportFeedback {
+                        message: format!("Import failed for {owner}/{name}: {error}"),
+                        is_error: true,
+                    }));
+                }
+            }
+
+            set_repo_importing.set(false);
+        });
     };
 
     view! {
@@ -214,46 +401,75 @@ fn app_shell(
                 loading=loading
                 on_refresh=on_refresh
                 login_url=login_url.map(str::to_string)
-                on_open_chat=move |_| ui.set_chat_open.set(true)
+                on_open_chat=move |_| ui.set_center_mode.set(CenterMode::General)
             />
             <div class="main-layout">
                 <Sidebar
-                    rooms=rooms.clone()
+                    all_count=all_runs.len()
+                    attention_count=attention_count
+                    starred_count=starred.len()
+                    completed_count=completed_count
                     gate=gate.clone()
-                    selected_room=selected_room.clone()
+                    tracked_repos=repo_sidebar.repos
+                    repos_loading=repo_sidebar.loading
+                    repo_list_error=repo_sidebar.error
                     active_filter=filter
-                    starred_rooms=starred.clone()
-                    on_set_filter=move |value| ui.set_sidebar_filter.set(value)
-                    on_select_room=move |room| ui.set_selected_room.set(Some(room))
+                    repo_draft=ui.repo_draft
+                    set_repo_draft=ui.set_repo_draft
+                    repo_importing=ui.repo_importing
+                    repo_feedback=ui.repo_feedback
+                    on_set_filter=move |value| {
+                        ui.set_sidebar_filter.set(value);
+                        ui.set_center_mode.set(CenterMode::Runs);
+                    }
+                    general_active=ui.center_mode.get() == CenterMode::General
+                    selected_repo=ui.selected_repo.get()
+                    on_select_repo=move |repo| {
+                        let already_selected =
+                            ui.selected_repo.get().as_ref() == Some(&repo);
+                        if already_selected {
+                            ui.set_selected_repo.set(None);
+                        } else {
+                            ui.set_selected_repo.set(Some(repo));
+                        }
+                        ui.set_center_mode.set(CenterMode::Runs);
+                    }
+                    on_open_general=move || ui.set_center_mode.set(CenterMode::General)
+                    on_import_repo=on_import_repo
                 />
-                <div class="center">
-                    <RoomListPane
-                        rooms=rooms
+                <div class=if ui.center_mode.get() == CenterMode::General {
+                    "center conversation-mode"
+                } else {
+                    "center"
+                }>
+                    <RunListPane
+                        runs=filtered_runs.clone()
                         loading=loading
-                        selected_room=selected_room
+                        selected_run=selected_run_id
                         active_filter=filter
-                        starred_rooms=starred
-                        on_toggle_star=move |room| {
-                            ui.set_starred_rooms.update(|rooms| {
-                                if !rooms.insert(room.clone()) {
-                                    rooms.remove(&room);
+                        starred_runs=starred
+                        on_toggle_star=move |run_id| {
+                            ui.set_starred_runs.update(|runs| {
+                                if !runs.insert(run_id) {
+                                    runs.remove(&run_id);
                                 }
                             });
                         }
-                        on_select_room=move |room| ui.set_selected_room.set(Some(room))
+                        on_select_run=move |run_id| {
+                            ui.set_selected_run.set(Some(run_id));
+                            ui.set_center_mode.set(CenterMode::Runs);
+                        }
                     />
-                    <ReadingPane/>
+                    <ReadingPane run=selected_run.clone()/>
+                    <GeneralConversationView
+                        messages=ui.chat_messages
+                        set_messages=ui.set_chat_messages
+                        sending=ui.chat_sending
+                        set_sending=ui.set_chat_sending
+                    />
                 </div>
-                <LifecycleSidebar gate=gate/>
+                <LifecycleSidebar run=selected_run gate=gate/>
             </div>
-            <ChatModal
-                open=ui.chat_open
-                set_open=ui.set_chat_open
-                messages=ui.chat_messages
-                set_messages=ui.set_chat_messages
-                sending=ui.chat_sending
-                set_sending=ui.set_chat_sending
-            />
         </main>
     }
 }
@@ -261,8 +477,11 @@ fn app_shell(
 fn unauthenticated_shell() -> impl IntoView {
     let gate = GateUiState::disconnected(
         "authentication required",
-        "log in to connect to the Prior gate".into(),
+        "log in to load factory runs".into(),
     );
+    let (repo_draft, set_repo_draft) = signal(String::new());
+    let (repo_importing, _) = signal(false);
+    let (repo_feedback, _) = signal(None::<RepoImportFeedback>);
 
     view! {
         <main class="app-shell">
@@ -271,40 +490,52 @@ fn unauthenticated_shell() -> impl IntoView {
                 gate=gate.clone()
                 loading=false
                 on_refresh=move |_| {}
-                login_url=Some("/auth/login?return_to=/app".to_string())
+                login_url=Some("/auth/login".to_string())
                 on_open_chat=move |_| {}
             />
             <div class="main-layout">
                 <Sidebar
-                    rooms=vec![]
+                    all_count=0
+                    attention_count=0
+                    starred_count=0
+                    completed_count=0
                     gate=gate.clone()
-                    selected_room=None
+                    tracked_repos=vec![]
+                    repos_loading=false
+                    repo_list_error=None
                     active_filter=SidebarFilter::All
-                    starred_rooms=BTreeSet::new()
+                    repo_draft=repo_draft
+                    set_repo_draft=set_repo_draft
+                    repo_importing=repo_importing
+                    repo_feedback=repo_feedback
                     on_set_filter=move |_| {}
-                    on_select_room=move |_| {}
+                    general_active=false
+                    selected_repo=None
+                    on_select_repo=move |_| {}
+                    on_open_general=move || {}
+                    on_import_repo=move || {}
                 />
                 <div class="center">
-                    <RoomListPane
-                        rooms=vec![]
+                    <RunListPane
+                        runs=vec![]
                         loading=false
-                        selected_room=None
+                        selected_run=None
                         active_filter=SidebarFilter::All
-                        starred_rooms=BTreeSet::new()
+                        starred_runs=BTreeSet::new()
                         on_toggle_star=move |_| {}
-                        on_select_room=move |_| {}
+                        on_select_run=move |_| {}
                     />
                     <div class="reading-pane">
                         <div class="empty-state">
-                            <div class="empty-state-icon">"🔒"</div>
+                            <div class="empty-state-icon">"?"</div>
                             <p class="empty-state-title">"Sign in to get started"</p>
-                            <p class="empty-state-body">"Prior requires authentication to connect to the gate and discover rooms."</p>
+                            <p class="empty-state-body">"Prior requires authentication before it can load factory runs and lifecycle state."</p>
                             <br/>
-                            <a class="btn-primary" href="/auth/login?return_to=/app">"Log in"</a>
+                            {login_button("Log in")}
                         </div>
                     </div>
                 </div>
-                <LifecycleSidebar gate=gate/>
+                <LifecycleSidebar run=None gate=gate/>
             </div>
         </main>
     }
@@ -312,6 +543,9 @@ fn unauthenticated_shell() -> impl IntoView {
 
 fn error_shell(error: String) -> impl IntoView {
     let gate = GateUiState::disconnected("session lookup failed", error);
+    let (repo_draft, set_repo_draft) = signal(String::new());
+    let (repo_importing, _) = signal(false);
+    let (repo_feedback, _) = signal(None::<RepoImportFeedback>);
 
     view! {
         <main class="app-shell">
@@ -320,46 +554,56 @@ fn error_shell(error: String) -> impl IntoView {
                 gate=gate.clone()
                 loading=false
                 on_refresh=move |_| {}
-                login_url=Some("/auth/login?return_to=/app".to_string())
+                login_url=Some("/auth/login".to_string())
                 on_open_chat=move |_| {}
             />
             <div class="main-layout">
                 <Sidebar
-                    rooms=vec![]
+                    all_count=0
+                    attention_count=0
+                    starred_count=0
+                    completed_count=0
                     gate=gate.clone()
-                    selected_room=None
+                    tracked_repos=vec![]
+                    repos_loading=false
+                    repo_list_error=None
                     active_filter=SidebarFilter::All
-                    starred_rooms=BTreeSet::new()
+                    repo_draft=repo_draft
+                    set_repo_draft=set_repo_draft
+                    repo_importing=repo_importing
+                    repo_feedback=repo_feedback
                     on_set_filter=move |_| {}
-                    on_select_room=move |_| {}
+                    general_active=false
+                    selected_repo=None
+                    on_select_repo=move |_| {}
+                    on_open_general=move || {}
+                    on_import_repo=move || {}
                 />
                 <div class="center">
-                    <RoomListPane
-                        rooms=vec![]
+                    <RunListPane
+                        runs=vec![]
                         loading=false
-                        selected_room=None
+                        selected_run=None
                         active_filter=SidebarFilter::All
-                        starred_rooms=BTreeSet::new()
+                        starred_runs=BTreeSet::new()
                         on_toggle_star=move |_| {}
-                        on_select_room=move |_| {}
+                        on_select_run=move |_| {}
                     />
                     <div class="reading-pane">
                         <div class="empty-state">
-                            <div class="empty-state-icon">"⚠"</div>
+                            <div class="empty-state-icon">"!"</div>
                             <p class="empty-state-title">"Session error"</p>
                             <p class="empty-state-body">{gate.status.clone()}</p>
                             <br/>
-                            <a class="btn-primary" href="/auth/login?return_to=/app">"Try again"</a>
+                            {login_button("Try again")}
                         </div>
                     </div>
                 </div>
-                <LifecycleSidebar gate=gate/>
+                <LifecycleSidebar run=None gate=gate/>
             </div>
         </main>
     }
 }
-
-// ── Topbar ──────────────────────────────────────────────
 
 #[component]
 fn Topbar<F, G>(
@@ -381,9 +625,20 @@ where
     };
 
     let auth_action = if let Some(login_href) = login_url {
-        view! { <a class="btn-primary" href=login_href>"Log in"</a> }.into_any()
+        view! {
+            <form method="get" action=login_href>
+                <input type="hidden" name="return_to" value="/app"/>
+                <button class="btn-primary" type="submit">"Log in"</button>
+            </form>
+        }
+        .into_any()
     } else {
-        view! { <a class="btn-secondary" href="/auth/logout">"Log out"</a> }.into_any()
+        view! {
+            <form method="post" action="/auth/logout">
+                <button class="btn-secondary" type="submit">"Log out"</button>
+            </form>
+        }
+        .into_any()
     };
 
     view! {
@@ -397,7 +652,7 @@ where
 
             <button class="prompt-bar" on:click=on_open_chat type="button">
                 <span class="prompt-bar-icon">"+"</span>
-                <span class="prompt-bar-placeholder">"Describe a task, paste a brief, or ask a question\u{2026}"</span>
+                <span class="prompt-bar-placeholder">"Describe a task, paste a brief, or ask a question..."</span>
             </button>
 
             <div class="topbar-right">
@@ -419,32 +674,36 @@ where
     }
 }
 
-// ── Left Sidebar (Repos = Folders) ──────────────────────
-
 #[component]
-fn Sidebar<F, G>(
-    rooms: Vec<String>,
+fn Sidebar<F, G, H, I>(
+    all_count: usize,
+    attention_count: usize,
+    starred_count: usize,
+    completed_count: usize,
     gate: GateUiState,
-    selected_room: Option<String>,
+    tracked_repos: Vec<RepoEntry>,
+    repos_loading: bool,
+    repo_list_error: Option<String>,
     active_filter: SidebarFilter,
-    starred_rooms: BTreeSet<String>,
-    on_set_filter: G,
-    on_select_room: F,
+    repo_draft: ReadSignal<String>,
+    set_repo_draft: WriteSignal<String>,
+    repo_importing: ReadSignal<bool>,
+    repo_feedback: ReadSignal<Option<RepoImportFeedback>>,
+    on_set_filter: F,
+    general_active: bool,
+    selected_repo: Option<String>,
+    on_select_repo: G,
+    on_open_general: H,
+    on_import_repo: I,
 ) -> impl IntoView
 where
-    F: Fn(String) + Copy + Send + 'static,
-    G: Fn(SidebarFilter) + Copy + 'static,
+    F: Fn(SidebarFilter) + Copy + 'static,
+    G: Fn(String) + Copy + Send + 'static,
+    H: Fn() + Copy + 'static,
+    I: Fn() + Copy + 'static,
 {
-    // Filter out #general and other general-purpose rooms from the sidebar.
-    // These are accessed via the prompt bar / chat modal instead.
-    let filtered_rooms: Vec<String> = rooms
-        .into_iter()
-        .filter(|room| !room.starts_with('#'))
-        .collect();
-    let room_count = filtered_rooms.len();
-    let starred_count = starred_rooms.len();
     let connection_label = match gate.connection {
-        ConnectionStatus::Connecting => "Connecting\u{2026}",
+        ConnectionStatus::Connecting => "Connecting...",
         ConnectionStatus::Connected => "Connected",
         ConnectionStatus::Disconnected => "Disconnected",
     };
@@ -453,54 +712,19 @@ where
         ConnectionStatus::Connected => "status-pill status-pill--ok",
         ConnectionStatus::Disconnected => "status-pill status-pill--down",
     };
-    let all_class = if active_filter == SidebarFilter::All {
-        "sidebar-item active"
-    } else {
-        "sidebar-item"
-    };
-    let attention_class = if active_filter == SidebarFilter::NeedsAttention {
-        "sidebar-item active"
-    } else {
-        "sidebar-item"
-    };
-    let starred_class = if active_filter == SidebarFilter::Starred {
-        "sidebar-item active"
-    } else {
-        "sidebar-item"
-    };
-    let completed_class = if active_filter == SidebarFilter::Completed {
-        "sidebar-item active"
-    } else {
-        "sidebar-item"
-    };
 
     view! {
         <nav class="sidebar">
             <div class="sidebar-section">
-                <button class=all_class type="button" on:click=move |_| on_set_filter(SidebarFilter::All)>
+                <div class="sidebar-section-label">"Rooms"</div>
+                <button
+                    class=if general_active { "sidebar-item active" } else { "sidebar-item" }
+                    type="button"
+                    on:click=move |_| on_open_general()
+                >
                     <div class="sidebar-item-left">
-                        <span class="sidebar-item-icon">"◉"</span>
-                        <span class="sidebar-item-label">"All Rooms"</span>
-                    </div>
-                    <span class="sidebar-count">{room_count}</span>
-                </button>
-                <button class=attention_class type="button" on:click=move |_| on_set_filter(SidebarFilter::NeedsAttention)>
-                    <div class="sidebar-item-left">
-                        <span class="sidebar-item-icon">"⚑"</span>
-                        <span class="sidebar-item-label">"Needs Attention"</span>
-                    </div>
-                </button>
-                <button class=starred_class type="button" on:click=move |_| on_set_filter(SidebarFilter::Starred)>
-                    <div class="sidebar-item-left">
-                        <span class="sidebar-item-icon">"★"</span>
-                        <span class="sidebar-item-label">"Starred"</span>
-                    </div>
-                    <span class="sidebar-count">{starred_count}</span>
-                </button>
-                <button class=completed_class type="button" on:click=move |_| on_set_filter(SidebarFilter::Completed)>
-                    <div class="sidebar-item-left">
-                        <span class="sidebar-item-icon">"✓"</span>
-                        <span class="sidebar-item-label">"Completed"</span>
+                        <span class="sidebar-item-icon">"#"</span>
+                        <span class="sidebar-item-label">"general"</span>
                     </div>
                 </button>
             </div>
@@ -508,43 +732,120 @@ where
             <div class="sidebar-divider"></div>
 
             <div class="sidebar-section">
-                <div class="sidebar-section-label">"Repos"</div>
-                {if filtered_rooms.is_empty() {
-                    view! {
-                        <div class="sidebar-empty-copy">
-                            "No repo rooms available."
-                        </div>
-                    }.into_any()
-                } else {
-                    view! {
-                        <For
-                            each=move || filtered_rooms.clone()
-                            key=|room| room.clone()
-                            children=move |room| {
-                                let is_selected = selected_room.as_ref() == Some(&room);
-                                let item_class = if is_selected {
-                                    "sidebar-item active"
-                                } else {
-                                    "sidebar-item"
-                                };
-                                let room_name = room.clone();
+                <div class="sidebar-section-label">"Runs"</div>
+                <FilterButton
+                    label="All Runs"
+                    icon="◉"
+                    count=Some(all_count)
+                    active=!general_active && active_filter == SidebarFilter::All
+                    on_click=move |_| on_set_filter(SidebarFilter::All)
+                />
+                <FilterButton
+                    label="Needs Attention"
+                    icon="⚑"
+                    count=Some(attention_count)
+                    active=!general_active && active_filter == SidebarFilter::NeedsAttention
+                    on_click=move |_| on_set_filter(SidebarFilter::NeedsAttention)
+                />
+                <FilterButton
+                    label="Starred"
+                    icon="★"
+                    count=Some(starred_count)
+                    active=!general_active && active_filter == SidebarFilter::Starred
+                    on_click=move |_| on_set_filter(SidebarFilter::Starred)
+                />
+                <FilterButton
+                    label="Completed"
+                    icon="✓"
+                    count=Some(completed_count)
+                    active=!general_active && active_filter == SidebarFilter::Completed
+                    on_click=move |_| on_set_filter(SidebarFilter::Completed)
+                />
+            </div>
 
-                                view! {
-                                    <button
-                                        class=item_class
-                                        type="button"
-                                        on:click=move |_| on_select_room(room_name.clone())
-                                    >
-                                        <div class="sidebar-item-left">
-                                            <span class="sidebar-item-icon" style="font-size: 14px;">"▸"</span>
-                                            <span class="sidebar-item-label">{room}</span>
-                                        </div>
-                                    </button>
+            <div class="sidebar-divider"></div>
+
+            <div class="sidebar-section">
+                <div class="sidebar-section-label">"Tracked Repos"</div>
+                <div class="sidebar-repo-import">
+                    <input
+                        class="sidebar-text-input"
+                        type="text"
+                        placeholder="owner/repo or GitHub URL"
+                        prop:value=move || repo_draft.get()
+                        on:input=move |event| set_repo_draft.set(event_target_value(&event))
+                        disabled=move || repo_importing.get()
+                    />
+                    <button
+                        class="btn-secondary sidebar-import-btn"
+                        type="button"
+                        on:click=move |_| on_import_repo()
+                        disabled=move || repo_importing.get() || repo_draft.get().trim().is_empty()
+                    >
+                        {move || if repo_importing.get() { "Importing..." } else { "Track Repo" }}
+                    </button>
+                </div>
+                {move || repo_feedback.get().map(|feedback| {
+                    let feedback_class = if feedback.is_error {
+                        "sidebar-feedback sidebar-feedback--error"
+                    } else {
+                        "sidebar-feedback sidebar-feedback--ok"
+                    };
+
+                    view! { <div class=feedback_class>{feedback.message}</div> }
+                })}
+                {repo_list_error.as_ref().map(|error| {
+                    view! {
+                        <div class="sidebar-feedback sidebar-feedback--error">
+                            {format!("Could not load tracked repos: {error}")}
+                        </div>
+                    }
+                })}
+                <div class="sidebar-repo-list">
+                    {if repos_loading {
+                        view! { <div class="sidebar-empty-copy">"Loading tracked repositories..."</div> }.into_any()
+                    } else if tracked_repos.is_empty() {
+                        view! { <div class="sidebar-empty-copy">"No repositories tracked yet. Import one to connect runs back to code." </div> }.into_any()
+                    } else {
+                        view! {
+                            <For
+                                each=move || tracked_repos.clone().into_iter()
+                                key=|repo| repo.id
+                                children=move |repo| {
+                                    let repo_label = format!("{}/{}", repo.owner, repo.name);
+                                    let repo_label_for_click = repo_label.clone();
+                                    let is_selected = selected_repo.as_ref() == Some(&repo_label);
+                                    let repo_meta = repo
+                                        .default_base_branch
+                                        .clone()
+                                        .filter(|branch| !branch.trim().is_empty());
+
+                                    view! {
+                                        <button
+                                            class=if is_selected {
+                                                "sidebar-item active sidebar-repo-item"
+                                            } else {
+                                                "sidebar-item sidebar-repo-item"
+                                            }
+                                            type="button"
+                                            on:click=move |_| on_select_repo(repo_label_for_click.clone())
+                                        >
+                                            <div class="sidebar-item-left">
+                                                <span class="sidebar-item-icon">"⎇"</span>
+                                                <div class="sidebar-repo-copy">
+                                                    <span class="sidebar-item-label sidebar-repo-label">{repo_label}</span>
+                                                    {repo_meta.map(|meta| view! {
+                                                        <span class="sidebar-repo-subtle">{meta}</span>
+                                                    })}
+                                                </div>
+                                            </div>
+                                        </button>
+                                    }
                                 }
-                            }
-                        />
-                    }.into_any()
-                }}
+                            />
+                        }.into_any()
+                    }}
+                </div>
             </div>
 
             <div class="sidebar-divider"></div>
@@ -562,40 +863,66 @@ where
     }
 }
 
-// ── Room List Pane (Message List) ───────────────────────
-
 #[component]
-fn RoomListPane<F, G>(
-    rooms: Vec<String>,
-    loading: bool,
-    selected_room: Option<String>,
-    active_filter: SidebarFilter,
-    starred_rooms: BTreeSet<String>,
-    on_toggle_star: G,
-    on_select_room: F,
+fn FilterButton<F>(
+    label: &'static str,
+    icon: &'static str,
+    count: Option<usize>,
+    active: bool,
+    on_click: F,
 ) -> impl IntoView
 where
-    F: Fn(String) + Copy + Send + 'static,
-    G: Fn(String) + Copy + Send + 'static,
+    F: Fn(leptos::ev::MouseEvent) + Copy + 'static,
 {
-    let room_count = rooms.len();
-    let display_rooms = rooms.clone();
+    let class = if active {
+        "sidebar-item active"
+    } else {
+        "sidebar-item"
+    };
+
+    view! {
+        <button class=class type="button" on:click=on_click>
+            <div class="sidebar-item-left">
+                <span class="sidebar-item-icon">{icon}</span>
+                <span class="sidebar-item-label">{label}</span>
+            </div>
+            {count.map(|value| view! { <span class="sidebar-count">{value}</span> })}
+        </button>
+    }
+}
+
+#[component]
+fn RunListPane<F, G>(
+    runs: Vec<FactoryRunDisplay>,
+    loading: bool,
+    selected_run: Option<i64>,
+    active_filter: SidebarFilter,
+    starred_runs: BTreeSet<i64>,
+    on_toggle_star: G,
+    on_select_run: F,
+) -> impl IntoView
+where
+    F: Fn(i64) + Copy + Send + 'static,
+    G: Fn(i64) + Copy + Send + 'static,
+{
+    let run_count = runs.len();
+    let display_runs = runs.clone();
     let empty_title = match active_filter {
-        SidebarFilter::All => "No rooms discovered",
-        SidebarFilter::Starred => "No starred rooms",
-        SidebarFilter::NeedsAttention => "Needs attention is not available yet",
-        SidebarFilter::Completed => "Completed rooms are not available yet",
+        SidebarFilter::All => "No factory runs found",
+        SidebarFilter::Starred => "No starred runs",
+        SidebarFilter::NeedsAttention => "No runs need attention",
+        SidebarFilter::Completed => "No completed runs yet",
     };
     let empty_body = match active_filter {
         SidebarFilter::All => {
-            "Rooms will appear here when the gate connects and discovers active sessions."
+            "Use the prompt bar to start a run, or refresh once Prior has created work."
         }
-        SidebarFilter::Starred => "Star rooms from the list to pin them here.",
+        SidebarFilter::Starred => "Star runs from the inbox to pin them here.",
         SidebarFilter::NeedsAttention => {
-            "This filter needs room/run status metadata from Prior before it can show anything useful."
+            "Blocked runs, failed verification, and failed checkpoints will surface here."
         }
         SidebarFilter::Completed => {
-            "This filter needs completion metadata from Prior before it can distinguish finished rooms."
+            "Completed runs will show here when the factory reaches delivery or review-ready states."
         }
     };
 
@@ -603,19 +930,19 @@ where
         <div class="room-list-pane">
             <div class="room-list-toolbar">
                 <div class="room-list-toolbar-left">
-                    <span class="toolbar-copy">"Rooms"</span>
+                    <span class="toolbar-copy">"Runs"</span>
                 </div>
                 <span class="room-list-info">
                     {if loading {
-                        "Loading…".to_string()
+                        "Loading...".to_string()
                     } else {
-                        format!("{room_count} room(s)")
+                        format!("{run_count} run(s)")
                     }}
                 </span>
             </div>
 
             <div class="room-list">
-                {if display_rooms.is_empty() && !loading {
+                {if display_runs.is_empty() && !loading {
                     view! {
                         <div class="empty-state">
                             <p class="empty-state-title">{empty_title}</p>
@@ -625,51 +952,60 @@ where
                 } else {
                     view! {
                         <For
-                            each=move || display_rooms.clone().into_iter().enumerate()
-                            key=|(_, room)| room.clone()
-                            children=move |(index, room)| {
-                                let is_selected = selected_room
-                                    .as_ref()
-                                    .map_or(index == 0, |selected| selected == &room);
-                                let is_starred = starred_rooms.contains(&room);
+                            each=move || display_runs.clone().into_iter()
+                            key=|run| run.id
+                            children=move |run| {
+                                let is_selected = selected_run == Some(run.id);
+                                let is_starred = starred_runs.contains(&run.id);
                                 let row_class = if is_selected {
                                     "room-row selected"
                                 } else {
                                     "room-row"
                                 };
-                                let room_name = room.clone();
-                                let star_room = room.clone();
                                 let star_class = if is_starred {
                                     "room-star starred"
                                 } else {
                                     "room-star"
                                 };
+                                let run_id = run.id;
+                                let star_run_id = run.id;
+                                let tag_class = if run.needs_attention {
+                                    "room-tag err"
+                                } else if run.completed {
+                                    "room-tag ok"
+                                } else {
+                                    "room-tag info"
+                                };
+                                let tag_text = if run.needs_attention {
+                                    "Attention"
+                                } else if run.completed {
+                                    "Complete"
+                                } else {
+                                    "Active"
+                                };
 
                                 view! {
-                                    <div
-                                        class=row_class
-                                        on:click=move |_| on_select_room(room_name.clone())
-                                    >
+                                    <div class=row_class on:click=move |_| on_select_run(run_id)>
                                         <div class="room-row-check">
                                             <button
                                                 class=star_class
                                                 type="button"
                                                 on:click=move |event| {
                                                     event.stop_propagation();
-                                                    on_toggle_star(star_room.clone());
+                                                    on_toggle_star(star_run_id);
                                                 }
-                                                title={if is_starred { "Remove star" } else { "Star room" }}
+                                                title={if is_starred { "Remove star" } else { "Star run" }}
                                             >
                                                 {if is_starred { "★" } else { "☆" }}
                                             </button>
                                         </div>
                                         <div class="room-content">
-                                            <span class="room-sender">{room.clone()}</span>
-                                            <span class="room-snippet">"Active room"</span>
+                                            <span class="room-sender">{run.title.clone()}</span>
+                                            <span class="room-snippet">{run.summary.clone()}</span>
                                         </div>
                                         <div class="room-meta">
-                                            <span class="room-date">"now"</span>
-                                            <span class="room-tag info">"Live"</span>
+                                            <span class="room-date">{run.current_stage.clone()}</span>
+                                            <span class=tag_class>{tag_text}</span>
                                         </div>
                                     </div>
                                 }
@@ -682,26 +1018,92 @@ where
     }
 }
 
-// ── Reading Pane (Thread View) ──────────────────────────
-
 #[component]
-fn ReadingPane() -> impl IntoView {
+fn ReadingPane(run: Option<FactoryRunDisplay>) -> impl IntoView {
     view! {
         <div class="reading-pane">
-            <div class="empty-state">
-                <div class="empty-state-icon">"◉"</div>
-                <p class="empty-state-title">"Select a room"</p>
-                <p class="empty-state-body">"Choose a room from the list to see its conversation thread and factory run updates."</p>
-            </div>
+            {run.map_or_else(
+                || {
+                    view! {
+                        <div class="empty-state">
+                            <div class="empty-state-icon">"◉"</div>
+                            <p class="empty-state-title">"Select a run"</p>
+                            <p class="empty-state-body">"Choose a run from the inbox to inspect the factory updates that Prior projects for web display."</p>
+                        </div>
+                    }
+                    .into_any()
+                },
+                |run| {
+                    view! {
+                        <div class="reading-pane-header">
+                            <div class="reading-pane-title">{run.title.clone()}</div>
+                            <div class="reading-pane-subtitle">
+                                {format!("{} • {} • {} room(s)", run.repo_label, run.status, run.active_room_count)}
+                            </div>
+                        </div>
+                        <div class="reading-thread">
+                            <For
+                                each=move || run.updates.clone()
+                                key=|update| (update.ts, update.title.clone())
+                                children=move |update| view! {
+                                    <RunUpdateCard update=update/>
+                                }
+                            />
+                        </div>
+                    }
+                    .into_any()
+                },
+            )}
         </div>
     }
 }
 
-// ── Lifecycle Sidebar (Right) ───────────────────────────
+#[component]
+fn RunUpdateCard(update: FactoryRunUpdateDisplay) -> impl IntoView {
+    let tag_class = match update.kind.as_str() {
+        "blocker" => "room-tag err",
+        "checkpoint" => "room-tag warn",
+        _ => "room-tag info",
+    };
+
+    view! {
+        <div class="run-card">
+            <div class="run-card-header">
+                <span class="run-card-id">{update.title}</span>
+                <span class=tag_class>{update.kind}</span>
+            </div>
+            <div class="run-card-detail">{update.body}</div>
+        </div>
+    }
+}
 
 #[component]
-fn LifecycleSidebar(gate: GateUiState) -> impl IntoView {
+fn LifecycleSidebar(run: Option<FactoryRunDisplay>, gate: GateUiState) -> impl IntoView {
     let server = gate.server_name.clone().unwrap_or_else(|| "unknown".into());
+    let lifecycle = run
+        .as_ref()
+        .map_or_else(Vec::new, |run| run.lifecycle.clone());
+    let lifecycle_for_progress = lifecycle.clone();
+    let lifecycle_for_list = lifecycle.clone();
+    let selected_run_label = run.as_ref().map_or_else(
+        || "No active runs".to_string(),
+        |run| format!("Run {} • {}", run.id, run.current_stage),
+    );
+    let selected_run_status = run
+        .as_ref()
+        .map_or_else(|| "None".to_string(), |run| run.status.clone());
+    let selected_run_summary = run.as_ref().map_or_else(
+        || "No run selected.".to_string(),
+        |run| {
+            format!(
+                "{} issue(s), {} blocker(s), {} room(s)",
+                run.issue_count, run.blocker_count, run.active_room_count,
+            )
+        },
+    );
+    let room_labels = run
+        .as_ref()
+        .map_or_else(Vec::new, |run| run.room_labels.clone());
 
     view! {
         <aside class="right-sidebar">
@@ -710,77 +1112,71 @@ fn LifecycleSidebar(gate: GateUiState) -> impl IntoView {
             </div>
 
             <div>
-                <label style="font-size: 12px; color: var(--text-muted); display: block; margin-bottom: 4px;">"Active Run"</label>
+                <label style="font-size: 12px; color: var(--text-muted); display: block; margin-bottom: 4px;">"Selected Run"</label>
                 <select class="phase-selector">
-                    <option>"No active runs"</option>
+                    <option>{selected_run_label}</option>
                 </select>
             </div>
 
             <div class="lifecycle-progress">
-                <div class="lifecycle-progress-seg"></div>
-                <div class="lifecycle-progress-seg"></div>
-                <div class="lifecycle-progress-seg"></div>
-                <div class="lifecycle-progress-seg"></div>
-                <div class="lifecycle-progress-seg"></div>
-                <div class="lifecycle-progress-seg"></div>
-                <div class="lifecycle-progress-seg"></div>
+                <For
+                    each=move || lifecycle_for_progress.clone()
+                    key=|phase| phase.name.clone()
+                    children=move |phase| {
+                        let class = match phase.state.as_str() {
+                            "done" => "lifecycle-progress-seg done",
+                            "active" => "lifecycle-progress-seg active",
+                            _ => "lifecycle-progress-seg",
+                        };
+                        view! { <div class=class></div> }
+                    }
+                />
             </div>
 
             <div class="lifecycle-phases">
-                <div class="lifecycle-phase future">
-                    <div class="phase-icon pending">"○"</div>
-                    <div class="phase-info">
-                        <div class="phase-name">"Interpret"</div>
-                        <div class="phase-detail">"Normalize problem brief"</div>
-                    </div>
-                </div>
-                <div class="lifecycle-phase future">
-                    <div class="phase-icon pending">"○"</div>
-                    <div class="phase-info">
-                        <div class="phase-name">"Resolve"</div>
-                        <div class="phase-detail">"Bind to repo context"</div>
-                    </div>
-                </div>
-                <div class="lifecycle-phase future">
-                    <div class="phase-icon pending">"○"</div>
-                    <div class="phase-info">
-                        <div class="phase-name">"Plan"</div>
-                        <div class="phase-detail">"Generate stage graph"</div>
-                    </div>
-                </div>
-                <div class="lifecycle-phase future">
-                    <div class="phase-icon pending">"○"</div>
-                    <div class="phase-info">
-                        <div class="phase-name">"Execute"</div>
-                        <div class="phase-detail">"Run issues"</div>
-                    </div>
-                </div>
-                <div class="lifecycle-phase future">
-                    <div class="phase-icon pending">"○"</div>
-                    <div class="phase-info">
-                        <div class="phase-name">"Verify"</div>
-                        <div class="phase-detail">"Run tests"</div>
-                    </div>
-                </div>
-                <div class="lifecycle-phase future">
-                    <div class="phase-icon pending">"○"</div>
-                    <div class="phase-info">
-                        <div class="phase-name">"Gate"</div>
-                        <div class="phase-detail">"Merge readiness"</div>
-                    </div>
-                </div>
-                <div class="lifecycle-phase future">
-                    <div class="phase-icon pending">"○"</div>
-                    <div class="phase-info">
-                        <div class="phase-name">"Complete"</div>
-                        <div class="phase-detail">"PR + review"</div>
-                    </div>
-                </div>
+                {if lifecycle.is_empty() {
+                    view! {
+                        <div class="lifecycle-phase future">
+                            <div class="phase-icon pending">"○"</div>
+                            <div class="phase-info">
+                                <div class="phase-name">"No run selected"</div>
+                                <div class="phase-detail">"Choose a run to inspect lifecycle state."</div>
+                            </div>
+                        </div>
+                    }
+                    .into_any()
+                } else {
+                    view! {
+                        <For
+                            each=move || lifecycle_for_list.clone()
+                            key=|phase| phase.name.clone()
+                            children=move |phase| view! {
+                                <LifecyclePhase phase=phase/>
+                            }
+                        />
+                    }
+                    .into_any()
+                }}
             </div>
 
             <div class="right-sidebar-divider"></div>
 
-            // Transport info
+            <div class="run-card">
+                <div class="run-card-header">
+                    <span class="run-card-id">"Selected Run"</span>
+                    <span class={match gate.connection {
+                        ConnectionStatus::Connecting => "run-card-status warn",
+                        ConnectionStatus::Connected => "run-card-status ok",
+                        ConnectionStatus::Disconnected => "run-card-status err",
+                    }}>
+                        {selected_run_status}
+                    </span>
+                </div>
+                <div class="run-card-detail">{selected_run_summary}</div>
+            </div>
+
+            <div class="right-sidebar-divider"></div>
+
             <div class="run-card">
                 <div class="run-card-header">
                     <span class="run-card-id">"Transport"</span>
@@ -801,28 +1197,52 @@ fn LifecycleSidebar(gate: GateUiState) -> impl IntoView {
                     <br/>
                     {format!("Gate: {}", gate.gate_url)}
                     <br/>
-                    {format!("Rooms: {}", gate.rooms.len())}
+                    {format!("Visible runs: {}", run.as_ref().map_or(0, |_| 1))}
                 </div>
             </div>
 
-            <div class="right-sidebar-divider"></div>
-
-            <div class="sidebar-legend">
-                <div class="legend-item"><div class="legend-dot" style="background: var(--ok);"></div>" Passed"</div>
-                <div class="legend-item"><div class="legend-dot" style="background: var(--accent);"></div>" Active"</div>
-                <div class="legend-item"><div class="legend-dot" style="background: var(--warn);"></div>" Blocked"</div>
-                <div class="legend-item"><div class="legend-dot" style="background: var(--err);"></div>" Failed"</div>
-            </div>
+            {(!room_labels.is_empty()).then(|| view! {
+                <>
+                    <div class="right-sidebar-divider"></div>
+                    <div class="run-card">
+                        <div class="run-card-header">
+                            <span class="run-card-id">"Run Rooms"</span>
+                        </div>
+                        <div class="run-card-detail">
+                            <For
+                                each=move || room_labels.clone()
+                                key=|room| room.clone()
+                                children=move |room| view! { <div>{room}</div> }
+                            />
+                        </div>
+                    </div>
+                </>
+            })}
         </aside>
     }
 }
 
-// ── Chat Modal (#general room) ──────────────────────────
+#[component]
+fn LifecyclePhase(phase: FactoryLifecyclePhaseDisplay) -> impl IntoView {
+    let (phase_class, icon_class, icon_text) = match phase.state.as_str() {
+        "done" => ("lifecycle-phase done", "phase-icon done", "✓"),
+        "active" => ("lifecycle-phase active", "phase-icon active", "◉"),
+        _ => ("lifecycle-phase future", "phase-icon pending", "○"),
+    };
+
+    view! {
+        <div class=phase_class>
+            <div class=icon_class>{icon_text}</div>
+            <div class="phase-info">
+                <div class="phase-name">{phase.name}</div>
+                <div class="phase-detail">{phase.detail}</div>
+            </div>
+        </div>
+    }
+}
 
 #[component]
-fn ChatModal(
-    open: ReadSignal<bool>,
-    set_open: WriteSignal<bool>,
+fn GeneralConversationView(
     messages: ReadSignal<Vec<ChatMessage>>,
     set_messages: WriteSignal<Vec<ChatMessage>>,
     sending: ReadSignal<bool>,
@@ -882,96 +1302,99 @@ fn ChatModal(
         }
     };
 
-    let on_backdrop_click = move |_: leptos::ev::MouseEvent| {
-        set_open.set(false);
-    };
-
     view! {
-        <Show when=move || open.get()>
-            <div class="chat-overlay" on:click=on_backdrop_click>
-                <div class="chat-modal" on:click=|event: leptos::ev::MouseEvent| event.stop_propagation()>
-                    <div class="chat-modal-header">
-                        <span class="chat-modal-title">"Prior"</span>
-                        <span class="chat-modal-room">"#general"</span>
-                        <button
-                            class="chat-modal-close"
-                            type="button"
-                            on:click=move |_| set_open.set(false)
-                            title="Close"
-                        >
-                            "\u{00d7}"
-                        </button>
+        <div class="conversation-view">
+            <div class="conversation-topbar">
+                <div class="conversation-room-info">
+                    <div class="conversation-room-name">"#general"</div>
+                    <div class="conversation-room-context">
+                        "General intake for prompts, briefs, and direct requests to Prior."
                     </div>
+                </div>
+                <div class="conversation-participants">
+                    <span class={if sending.get() { "status-pill status-pill--loading" } else { "status-pill status-pill--ok" }}></span>
+                    <span class="participant-label">
+                        {move || if sending.get() { "Prior is responding" } else { "Connected" }}
+                    </span>
+                </div>
+            </div>
 
-                    <div class="chat-modal-messages">
-                        {move || {
-                            let msgs = messages.get();
-                            if msgs.is_empty() {
-                                view! {
-                                    <div class="chat-modal-empty">
-                                        <p class="chat-modal-empty-title">"What would you like to work on?"</p>
-                                        <p class="chat-modal-empty-body">"Describe a task, paste a project brief, reference an issue \u{2014} Prior will interpret and can kick off a factory run."</p>
-                                    </div>
-                                }.into_any()
-                            } else {
-                                view! {
-                                    <For
-                                        each=move || {
-                                            msgs.clone().into_iter().enumerate().collect::<Vec<_>>()
-                                        }
-                                        key=|(index, _)| *index
-                                        children=move |(_, msg)| {
-                                            let bubble_class = if msg.is_human {
-                                                "chat-bubble chat-bubble--human"
-                                            } else {
-                                                "chat-bubble chat-bubble--assistant"
-                                            };
-                                            let avatar_class = if msg.is_human {
-                                                "chat-bubble-avatar human"
-                                            } else {
-                                                "chat-bubble-avatar system"
-                                            };
-                                            let avatar_letter = msg.from.chars().next()
-                                                .unwrap_or('?')
-                                                .to_uppercase()
-                                                .to_string();
-
-                                            view! {
-                                                <div class=bubble_class>
-                                                    <div class=avatar_class>{avatar_letter}</div>
-                                                    <div class="chat-bubble-body">
-                                                        <div class="chat-bubble-sender">{msg.from.clone()}</div>
-                                                        <div class="chat-bubble-content">{msg.content.clone()}</div>
-                                                    </div>
-                                                </div>
-                                            }
-                                        }
-                                    />
-                                }.into_any()
-                            }
-                        }}
-
-                        {move || sending.get().then(|| view! {
-                            <div class="chat-bubble chat-bubble--assistant">
-                                <div class="chat-bubble-avatar system">"P"</div>
-                                <div class="chat-bubble-body">
-                                    <div class="chat-bubble-sender">"Prior"</div>
-                                    <div class="chat-bubble-content chat-bubble-typing">"Thinking\u{2026}"</div>
-                                </div>
+            <div class="conversation-messages">
+                {move || {
+                    let msgs = messages.get();
+                    if msgs.is_empty() {
+                        view! {
+                            <div class="chat-modal-empty">
+                                <p class="chat-modal-empty-title">"What would you like to work on?"</p>
+                                <p class="chat-modal-empty-body">"Describe a task, paste a project brief, reference an issue - Prior will interpret and can kick off a factory run."</p>
                             </div>
-                        })}
-                    </div>
+                        }.into_any()
+                    } else {
+                        view! {
+                            <For
+                                each=move || {
+                                    msgs.clone().into_iter().enumerate().collect::<Vec<_>>()
+                                }
+                                key=|(index, _)| *index
+                                children=move |(_, msg)| {
+                                    let bubble_class = if msg.is_human {
+                                        "chat-bubble chat-bubble--human"
+                                    } else {
+                                        "chat-bubble chat-bubble--assistant"
+                                    };
+                                    let avatar_class = if msg.is_human {
+                                        "chat-bubble-avatar human"
+                                    } else {
+                                        "chat-bubble-avatar system"
+                                    };
+                                    let avatar_letter = msg.from.chars().next()
+                                        .unwrap_or('?')
+                                        .to_uppercase()
+                                        .to_string();
 
-                    <div class="chat-modal-input-area">
-                        <textarea
-                            class="chat-modal-input"
-                            prop:value=move || draft.get()
-                            on:input=move |event| set_draft.set(event_target_value(&event))
-                            on:keydown=on_keydown
-                            placeholder="Describe a task, paste a brief, or ask a question\u{2026}"
-                            rows="3"
-                            disabled=move || sending.get()
-                        ></textarea>
+                                    view! {
+                                        <div class=bubble_class>
+                                            <div class=avatar_class>{avatar_letter}</div>
+                                            <div class="chat-bubble-body">
+                                                <div class="chat-bubble-sender">{msg.from.clone()}</div>
+                                                <div class="chat-bubble-content">{msg.content.clone()}</div>
+                                            </div>
+                                        </div>
+                                    }
+                                }
+                            />
+                        }.into_any()
+                    }
+                }}
+
+                {move || sending.get().then(|| view! {
+                    <div class="chat-bubble chat-bubble--assistant">
+                        <div class="chat-bubble-avatar system">"P"</div>
+                        <div class="chat-bubble-body">
+                            <div class="chat-bubble-sender">"Prior"</div>
+                            <div class="chat-bubble-content chat-bubble-typing">"Thinking..."</div>
+                        </div>
+                    </div>
+                })}
+            </div>
+
+            <div class="conversation-input-area">
+                <div class="conversation-input-wrap">
+                    <textarea
+                        class="chat-input"
+                        prop:value=move || draft.get()
+                        on:input=move |event| set_draft.set(event_target_value(&event))
+                        on:keydown=on_keydown
+                        placeholder="Describe a task, paste a brief, or ask a question..."
+                        rows="3"
+                        disabled=move || sending.get()
+                    ></textarea>
+                    <div class="conversation-input-actions">
+                        <div class="conversation-input-left">
+                            <span class="conversation-room-context">
+                                "Messages go to #general."
+                            </span>
+                        </div>
                         <button
                             class="send-btn"
                             type="button"
@@ -983,7 +1406,7 @@ fn ChatModal(
                     </div>
                 </div>
             </div>
-        </Show>
+        </div>
     }
 }
 
@@ -996,4 +1419,43 @@ fn set_chat_messages_with_human(set_messages: &WriteSignal<Vec<ChatMessage>>, co
             is_human: true,
         });
     });
+}
+
+fn parse_repo_spec(input: &str) -> Result<(String, String, String), String> {
+    let trimmed = input.trim().trim_end_matches('/');
+    if trimmed.is_empty() {
+        return Err("Enter a GitHub repo as owner/name or a full GitHub URL.".into());
+    }
+
+    let path = trimmed
+        .strip_prefix("https://github.com/")
+        .or_else(|| trimmed.strip_prefix("http://github.com/"))
+        .or_else(|| trimmed.strip_prefix("git@github.com:"))
+        .unwrap_or(trimmed)
+        .trim_end_matches(".git");
+    let mut parts = path.split('/').filter(|part| !part.is_empty());
+    let owner = parts
+        .next()
+        .ok_or_else(|| "Repo must include an owner.".to_string())?;
+    let name = parts
+        .next()
+        .ok_or_else(|| "Repo must include a repository name.".to_string())?;
+    if parts.next().is_some() {
+        return Err("Repo format should be owner/name or a direct GitHub repo URL.".into());
+    }
+
+    Ok((
+        owner.to_string(),
+        name.to_string(),
+        format!("https://github.com/{owner}/{name}.git"),
+    ))
+}
+
+fn login_button(label: &'static str) -> impl IntoView {
+    view! {
+        <form method="get" action="/auth/login">
+            <input type="hidden" name="return_to" value="/app"/>
+            <button class="btn-primary" type="submit">{label}</button>
+        </form>
+    }
 }
