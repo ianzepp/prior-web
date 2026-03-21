@@ -1,4 +1,6 @@
 #[cfg(feature = "ssr")]
+use axum::http::HeaderMap;
+#[cfg(feature = "ssr")]
 use axum::http::request::Parts;
 #[cfg(feature = "ssr")]
 use axum_extra::extract::cookie::PrivateCookieJar;
@@ -29,8 +31,17 @@ pub fn current_user_from_parts(parts: &Parts, state: &AppState) -> Option<Curren
 #[cfg(feature = "ssr")]
 #[must_use]
 pub fn current_session_from_parts(parts: &Parts, state: &AppState) -> Option<SessionCookie> {
+    current_session_from_headers(&parts.headers, state)
+}
+
+#[cfg(feature = "ssr")]
+#[must_use]
+pub fn current_session_from_headers(
+    headers: &HeaderMap,
+    state: &AppState,
+) -> Option<SessionCookie> {
     let auth = state.auth.as_ref()?;
-    let jar = PrivateCookieJar::from_headers(&parts.headers, auth.cookie_key.clone());
+    let jar = PrivateCookieJar::from_headers(headers, auth.cookie_key.clone());
     let cookie = jar.get(SESSION_COOKIE_NAME)?;
     let session = serde_json::from_str::<SessionCookie>(cookie.value()).ok()?;
 

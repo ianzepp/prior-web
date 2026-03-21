@@ -6,6 +6,8 @@ use crate::auth::user::current_auth_state;
 use crate::net::factory::FactoryDashboardView;
 use crate::state::auth::{AuthState, CurrentUser};
 
+#[path = "dashboard/live.rs"]
+mod live;
 #[path = "dashboard/state.rs"]
 mod state;
 #[path = "dashboard/view.rs"]

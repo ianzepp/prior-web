@@ -201,6 +201,20 @@ pub struct FactoryLifecyclePhaseDisplay {
     pub state: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FactoryEvent {
+    pub ts: i64,
+    pub event_type: String,
+    pub target_repo: Option<String>,
+    pub run_id: i64,
+    pub target_kind: String,
+    pub target_id: String,
+    pub stage_id: Option<i64>,
+    pub issue_id: Option<i64>,
+    pub room: Option<String>,
+    pub context: HashMap<String, serde_json::Value>,
+}
+
 #[server]
 pub async fn fetch_factory_dashboard() -> Result<FactoryDashboardView, ServerFnError> {
     #[cfg(feature = "ssr")]

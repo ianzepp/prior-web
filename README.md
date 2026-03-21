@@ -44,7 +44,6 @@ Then run:
 cargo leptos watch
 ```
 
-The local server will use `PRIOR_GATE_WS_URL`, optional `PRIOR_GATE_SERVICE_TOKEN`, and the Auth0/session settings from `.env` while still binding the web app locally.
 The local server will use `PRIOR_GATE_WS_URL`, optional `PRIOR_GATE_SERVICE_TOKEN`, and the GitHub/session settings from `.env` while still binding the web app locally.
 
 ## GitHub Auth Setup

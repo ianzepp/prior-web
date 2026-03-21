@@ -24,7 +24,8 @@ pub(crate) enum CenterMode {
 
 #[derive(Debug, Clone)]
 pub(crate) struct ChatMessage {
-    pub(crate) from: String,
+    pub(crate) topic: String,
+    pub(crate) actor: Option<String>,
     pub(crate) content: String,
     pub(crate) is_human: bool,
 }

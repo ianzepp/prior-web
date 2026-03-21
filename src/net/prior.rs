@@ -21,8 +21,19 @@ pub struct RoomHistoryEntry {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RoomMessageEntry {
+    #[serde(default)]
+    pub topic: String,
+    #[serde(default)]
     pub actor: Option<String>,
     pub content: String,
+}
+
+#[cfg(feature = "ssr")]
+#[derive(Debug, Clone)]
+struct GateEventRecord {
+    topic: String,
+    actor: Option<String>,
+    content: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -168,13 +179,15 @@ pub(crate) mod client {
 
     use crate::auth::user::{require_current_user, require_github_access_token};
     use crate::net::prior_gate_proto::{
-        ClientEnvelope, ClientHello, GateRequest, ResponseItem, ResponseOp, ServerEnvelope,
-        ServerHello, client_envelope, server_envelope,
+        ClientEnvelope, ClientHello, GateEvent, GateRequest, ResponseItem, ResponseOp,
+        ServerEnvelope, ServerHello, client_envelope, server_envelope,
     };
     use crate::runtime::prior_gate_config;
     use crate::state::gate::{ConnectionStatus, GateUiState};
 
-    use super::{RepoEntry, RepoImportResult, RoomActor, RoomHistoryEntry, RoomMessageEntry};
+    use super::{
+        GateEventRecord, RepoEntry, RepoImportResult, RoomActor, RoomHistoryEntry, RoomMessageEntry,
+    };
 
     const SECRET_AUTH_TOKEN: &str = "auth_token";
     const MAX_SAFE_INTEGER_F64: f64 = 9_007_199_254_740_991.0;
@@ -258,8 +271,13 @@ pub(crate) mod client {
         content: &str,
     ) -> Result<Vec<RoomMessageEntry>, String> {
         let actor = require_current_user()?.sub;
-        let mut session = connect_session(&actor, Some(room)).await?;
-        let result = session.send_message(room, content).await;
+        let mut session = connect_session(&actor, None).await?;
+        let result = async {
+            session.ensure_room_actor(room).await?;
+            session.join_room(room).await?;
+            session.send_message(room, content).await
+        }
+        .await;
         disconnect_with_result(&mut session, result).await
     }
 
@@ -292,9 +310,14 @@ pub(crate) mod client {
             ("owner", string_value(owner)),
             ("name", string_value(name)),
         ]);
-        let result = session
-            .request_one("repo:import", None, data, secrets)
-            .await;
+        let result = async {
+            let imported: RepoImportResult = session
+                .request_one("repo:import", None, data, secrets)
+                .await?;
+            session.ensure_room_actor(&imported.room).await?;
+            Ok(imported)
+        }
+        .await;
         disconnect_with_result(&mut session, result).await
     }
 
@@ -341,13 +364,36 @@ pub(crate) mod client {
     }
 
     impl PriorSession {
+        pub(crate) async fn ensure_room_actor(&mut self, room: &str) -> Result<(), String> {
+            if self.room_has_actor(room).await? {
+                return Ok(());
+            }
+
+            match self
+                .client
+                .request_done("room:join", Some(room), Struct::default(), None, &mut None)
+                .await
+            {
+                Ok(()) => Ok(()),
+                Err(error) if error.contains("actor already joined") => Ok(()),
+                Err(error) => Err(error),
+            }
+        }
+
         pub(crate) async fn list_known_rooms(
             &mut self,
             last_event: &mut Option<String>,
         ) -> Result<Vec<String>, String> {
             let responses = self
                 .client
-                .request_raw("door:rooms", None, Struct::default(), None, last_event)
+                .request_raw(
+                    "door:rooms",
+                    None,
+                    Struct::default(),
+                    None,
+                    last_event,
+                    None,
+                )
                 .await?;
             let mut rooms = responses
                 .iter()
@@ -357,6 +403,17 @@ pub(crate) mod client {
             rooms.sort();
             rooms.dedup();
             Ok(rooms)
+        }
+
+        async fn room_has_actor(&mut self, room: &str) -> Result<bool, String> {
+            match self
+                .request_items::<RoomActor>("room:list", Some(room), Struct::default(), None)
+                .await
+            {
+                Ok(actors) => Ok(!actors.is_empty()),
+                Err(error) if error.contains("room not found") => Ok(false),
+                Err(error) => Err(error),
+            }
         }
 
         pub(crate) async fn join_room(&mut self, room: &str) -> Result<(), String> {
@@ -379,7 +436,44 @@ pub(crate) mod client {
                 ("room", string_value(room)),
                 ("content", string_value(content)),
             ]);
-            self.request_items("door:message", None, data, None).await
+            let mut events = Vec::new();
+            let responses = self
+                .client
+                .request_raw(
+                    "door:message",
+                    None,
+                    data,
+                    None,
+                    &mut None,
+                    Some(&mut events),
+                )
+                .await?;
+
+            let mut entries = events
+                .into_iter()
+                .map(|event| RoomMessageEntry {
+                    topic: event.topic,
+                    actor: event.actor,
+                    content: event.content,
+                })
+                .collect::<Vec<_>>();
+
+            entries.extend(
+                responses
+                    .iter()
+                    .filter_map(|response| response.item.as_ref())
+                    .map(item_to_typed::<RoomMessageEntry>)
+                    .collect::<Result<Vec<_>, _>>()?
+                    .into_iter()
+                    .map(|mut entry| {
+                        if entry.topic.is_empty() {
+                            entry.topic = "door:message".to_string();
+                        }
+                        entry
+                    }),
+            );
+
+            Ok(entries)
         }
 
         pub(crate) async fn request_one<T: serde::de::DeserializeOwned>(
@@ -404,7 +498,7 @@ pub(crate) mod client {
         ) -> Result<Vec<T>, String> {
             let responses = self
                 .client
-                .request_raw(syscall, room, data, secrets, &mut None)
+                .request_raw(syscall, room, data, secrets, &mut None, None)
                 .await?;
 
             responses
@@ -471,6 +565,7 @@ pub(crate) mod client {
                     struct_from_vec(vec![("from", string_value(actor))]),
                     None,
                     &mut None,
+                    None,
                 )
                 .await?;
 
@@ -489,7 +584,7 @@ pub(crate) mod client {
             secrets: Option<Struct>,
             last_event: &mut Option<String>,
         ) -> Result<(), String> {
-            self.request_raw(syscall, room, data, secrets, last_event)
+            self.request_raw(syscall, room, data, secrets, last_event, None)
                 .await
                 .map(|_| ())
         }
@@ -501,6 +596,7 @@ pub(crate) mod client {
             data: Struct,
             secrets: Option<Struct>,
             last_event: &mut Option<String>,
+            mut event_sink: Option<&mut Vec<GateEventRecord>>,
         ) -> Result<Vec<crate::net::prior_gate_proto::GateResponse>, String> {
             let request_id = self.next_request_id();
             let envelope = ClientEnvelope {
@@ -543,6 +639,11 @@ pub(crate) mod client {
                     }
                     Some(server_envelope::Body::Event(event)) => {
                         *last_event = Some(format!("{}: {}", event.topic, event.event_id));
+                        if let Some(events) = event_sink.as_deref_mut() {
+                            if let Some(record) = gate_event_to_record(&event) {
+                                events.push(record);
+                            }
+                        }
                     }
                     Some(
                         server_envelope::Body::Pong(_)
@@ -723,5 +824,64 @@ pub(crate) mod client {
             Some(Kind::StringValue(value)) => Some(value.clone()),
             _ => None,
         }
+    }
+
+    fn value_as_bool(value: &Value) -> Option<bool> {
+        match value.kind.as_ref() {
+            Some(Kind::BoolValue(value)) => Some(*value),
+            _ => None,
+        }
+    }
+
+    fn gate_event_to_record(event: &GateEvent) -> Option<GateEventRecord> {
+        let data = event.data.as_ref()?;
+        let actor = data.fields.get("from").and_then(value_as_string);
+        let content = match event.topic.as_str() {
+            "door:thought" | "door:chat" => data.fields.get("content").and_then(value_as_string)?,
+            "door:tool" => format_tool_event(data)?,
+            "door:tool_result" => format_tool_result_event(data)?,
+            _ => return None,
+        };
+
+        Some(GateEventRecord {
+            topic: event.topic.clone(),
+            actor,
+            content,
+        })
+    }
+
+    fn format_tool_event(data: &Struct) -> Option<String> {
+        let syscall = data
+            .fields
+            .get("syscall")
+            .and_then(value_as_string)
+            .or_else(|| data.fields.get("tool_name").and_then(value_as_string))?;
+        let args = data
+            .fields
+            .get("args")
+            .map_or(serde_json::Value::Null, prost_value_to_json);
+        Some(format!(
+            "Tool call: `{syscall}`\n\n```json\n{}\n```",
+            pretty_json(&args)
+        ))
+    }
+
+    fn format_tool_result_event(data: &Struct) -> Option<String> {
+        let content = data.fields.get("content").and_then(value_as_string)?;
+        let is_error = data
+            .fields
+            .get("is_error")
+            .and_then(value_as_bool)
+            .unwrap_or(false);
+        let label = if is_error {
+            "Tool error"
+        } else {
+            "Tool result"
+        };
+        Some(format!("{label}:\n\n```text\n{content}\n```"))
+    }
+
+    fn pretty_json(value: &serde_json::Value) -> String {
+        serde_json::to_string_pretty(value).unwrap_or_else(|_| value.to_string())
     }
 }

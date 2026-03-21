@@ -49,6 +49,10 @@ async fn run() -> Result<(), String> {
             axum::routing::get(prior_web::auth::routes::logout)
                 .post(prior_web::auth::routes::logout),
         )
+        .route(
+            "/ws/live",
+            axum::routing::get(prior_web::net::live::ws_handler),
+        )
         .leptos_routes_with_context(&state, routes, || {}, {
             let options = options.clone();
             move || prior_web::app::shell(options.clone())
